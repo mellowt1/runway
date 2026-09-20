@@ -1,0 +1,79 @@
+{
+  "_comment": "The shape of the plan document. Copy to seed.json, put the real figures in, push with ./seed.sh. seed.json is gitignored and never committed: no figures live in this repo.",
+
+  "asOf": "2026-01-31",
+  "handoff": "Where these numbers came from",
+  "currency": "€",
+  "start": 1000,
+  "septCeiling": 100,
+  "monthEnd": "2026-01-31",
+  "people": { "owner": "Someone", "other": "Someone else" },
+
+  "months": [
+    { "key": "Jan", "label": "January" },
+    { "key": "Feb", "label": "February" },
+    { "key": "Mar", "label": "March" }
+  ],
+
+  "salary": { "amount": 2000, "from": "Feb", "min": 1500, "max": 2500, "step": 50, "note": "Shown under the figure when it is adjusted." },
+
+  "fixed": [{ "name": "Rent", "amount": 500 }],
+  "loans": [{ "name": "A loan", "amount": 100, "note": "shown as the row's second line" }],
+
+  "subs": [
+    { "id": "one", "name": "A subscription", "amount": 10, "cancelled": false },
+    { "id": "two", "name": "One already cancelled", "amount": 5, "cancelled": true }
+  ],
+
+  "flex": [
+    { "id": "food", "label": "Food", "plan": 200, "min": 100, "max": 400, "step": 25 },
+    { "id": "out", "label": "Going out", "plan": 100, "min": 0, "max": 300, "step": 25 },
+    { "id": "misc", "label": "Misc", "plan": 100, "min": 0, "max": 300, "step": 25 }
+  ],
+
+  "gemeente": {
+    "amount": 200,
+    "month": "Feb",
+    "note": "A one-off whose month can be moved.",
+    "choices": [
+      { "key": "Feb", "label": "February" },
+      { "key": "Mar", "label": "March" },
+      { "key": "later", "label": "After March" }
+    ]
+  },
+
+  "extras": [
+    { "id": "partner", "label": "Someone's share", "sub": "From February", "from": "Feb", "sign": 1, "plan": 0, "min": 0, "max": 500, "step": 50, "note": "sign 1 adds, sign -1 takes away" }
+  ],
+
+  "oneOffs": [{ "month": "Feb", "name": "A bill that lands once", "amount": -50 }],
+
+  "bridge": { "by": "Someone", "label": "Someone bridges", "short": "bridged" },
+
+  "rule": { "eyebrow": "Standing rule", "title": "A habit to keep", "body": "Why it matters, in one sentence." },
+
+  "tasks": [
+    { "id": "t1", "title": "A task", "meta": "This week", "detail": "Shown when the row is opened." },
+    { "id": "t2", "title": "A call", "meta": "1-555-0100", "tel": "+15550100", "due": "2026-02-28", "dueLabel": "By 28 Feb", "detail": "The only row that gets a deadline chip." }
+  ],
+
+  "script": { "eyebrow": "Ask every time", "quote": "“The sentence worth repeating.”", "note": "A line under it." },
+
+  "paul": ["What the other person is handling", "One per line"],
+
+  "debts": {
+    "usTotal": "$0",
+    "usSub": "the line under the total",
+    "order": "Call in this order",
+    "cards": [{ "task": "t2", "name": "A card", "balance": "$0.00", "apr": "0.00%", "when": "~a date" }],
+    "dutch": [
+      { "name": "A fixed one", "sub": "its second line", "amount": "€0" },
+      { "name": "An adjustable one", "sub": "tap to set a monthly", "lever": "partner" }
+    ],
+    "note": { "title": "Something with a date", "body": "And what it means." },
+    "leave": [{ "name": "Nothing to do here", "sub": "why" }]
+  },
+
+  "stillToCome": "A footnote at the bottom of the Month page.",
+  "footnote": "A footnote at the bottom of the Tasks page."
+}
