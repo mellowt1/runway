@@ -38,7 +38,7 @@ https://mellowt1.github.io/runway/?c=<code>&me=<first name>
    ```
    `seed.json` is gitignored. Keep it somewhere outside the repo once you have pushed it.
 
-If the Worker lives somewhere other than `runway-sync.mellowt1.workers.dev`, add `&api=https://…` to the link, or change the default at the top of the script in `index.html`.
+If the Worker lives somewhere other than `runway-sync.paul-o-a04.workers.dev`, add `&api=https://…` to the link, or change the default at the top of the script in `index.html`.
 
 ## How the live part works
 
@@ -65,4 +65,4 @@ Negative balances are never the headline and are never red. The forecast leads w
 python3 -m http.server 8080
 ```
 
-Open `http://localhost:8080/?c=<code>&api=https://runway-sync.mellowt1.workers.dev`. The Worker allows `localhost:8080` as an origin.
+Open `http://localhost:8080/?c=<code>&api=https://runway-sync.paul-o-a04.workers.dev`. The Worker allows `localhost:8080` as an origin.

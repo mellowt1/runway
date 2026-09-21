@@ -336,7 +336,7 @@ details p{font-size:13px;color:var(--text-2);line-height:1.6;margin-top:8px}
 
 var $ = function(id){ return document.getElementById(id); };
 var qs = new URLSearchParams(location.search);
-var API = (qs.get('api') || 'https://runway-sync.mellowt1.workers.dev').replace(/\/+$/, '');
+var API = (qs.get('api') || 'https://runway-sync.paul-o-a04.workers.dev').replace(/\/+$/, '');
 
 var store = {
   get: function(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } },
