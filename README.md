@@ -25,8 +25,8 @@ https://mellowt1.github.io/runway/?c=<code>&me=<first name>
 
 ## Setting it up
 
-1. **KV** — Cloudflare dashboard → Workers & Pages → KV → Create, call it `RUNWAY`, and paste its id into `worker/wrangler.toml`.
-2. **Worker** — deploy `worker/` (git-connected Workers Builds, or `npx wrangler deploy` from that folder). Bind the namespace as `RUNWAY_KV`, and set one secret:
+1. **KV** — Cloudflare dashboard → Workers & Pages → KV → Create, call it `RUNWAY`, and paste its id into `wrangler.toml` at the repo root.
+2. **Worker** — deploy with git-connected Workers Builds (root directory `/`, deploy command `npx wrangler deploy`) or by running `npx wrangler deploy` in the repo root. `wrangler.toml` sits at the root and points at `worker/src/worker.js`, so the site and the Worker deploy from the same place. Set one secret:
    ```
    npx wrangler secret put ADMIN_TOKEN
    ```
