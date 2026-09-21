@@ -2,9 +2,7 @@ name = "runway-sync"
 main = "worker/src/worker.js"
 compatibility_date = "2026-09-01"
 
-# One KV namespace. Create it in the Cloudflare dashboard (Workers & Pages → KV → Create),
-# name it RUNWAY, then bind it to this Worker as RUNWAY_KV in Settings → Bindings and
-# paste its id below.
+# One KV namespace, "Runway" in the dashboard, reached from the Worker as RUNWAY_KV.
 [[kv_namespaces]]
 binding = "RUNWAY_KV"
-id = "PASTE_THE_KV_NAMESPACE_ID_HERE"
+id = "fc6033f34bcb43729009b67a836d5f0a"
