@@ -4,16 +4,17 @@ A phone-first page for one person: what is left this month, where the money goes
 
 **No figures live in this repo.** The app ships empty and loads everything from the Worker using the code in the link, so the repo can be public without showing anyone's balance, salary or debts.
 
-## The two documents
+## The three documents
 
-Each code holds two things in KV:
+Each code holds three things in KV:
 
 | | written by | what it is |
 |---|---|---|
 | `plan` | the owner, with the admin token | balances, fixed costs, loans, subscriptions, the tasks, the debt list |
 | `state` | the app, by whoever opens it | food / going out / misc, which subscriptions are kept, the assumed salary, which month the gemeente lands in, ticked tasks |
+| `spends` | the app, one entry per logged purchase or money in | date, category, amount, an optional note, and who logged it; money in (a repayment, a transfer) carries `dir: "in"`, adds to that month's money and goes into the forecast |
 
-The app renders `plan` with `state` laid over it. "Back to the plan" deletes `state` and everything returns to the owner's figures.
+The app renders `plan` with `state` laid over it. "Back to the plan" deletes `state` and everything returns to the owner's figures. It never touches `spends`: those are facts, state is what-ifs. Spends live in their own document so a slider moved on a stale page (state is last-writer-wins) cannot erase them.
 
 ## The link
 

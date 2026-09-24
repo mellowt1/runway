@@ -1,3 +1,7 @@
 # The real figures. Pushed to the Worker with seed.sh, never committed.
 seed.json
 .DS_Store
+# Local `wrangler dev`: the admin token it reads, and the simulated KV (which holds
+# whatever plan was seeded into it, real figures included).
+.dev.vars
+.wrangler/
