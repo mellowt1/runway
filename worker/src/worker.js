@@ -24,10 +24,15 @@
  *   POST   /api/spend/:code        <- { by, spend }       -> { ok, spend, rev }     upsert by spend.id
  *   DELETE /api/spend/:code/:id    <- { by }              -> { ok, removed, rev }
  *
+ * The plan GET also carries `bank: { pin, conns, rev }` so a phone knows when to fetch
+ * the bank side. That side (a PIN, the bank connections, the sync) is in bank.js.
+ *
  * State and spends each keep their own `rev`, bumped on every write. The plan GET
  * returns their sum: both only ever increase, so the sum still tells a client
  * "something changed" cheaply. The POST/DELETE responses carry their own doc's rev.
  */
+
+import { bankRoutes, bankSummary, syncAll } from './bank.js';
 
 const ORIGINS = new Set([
   'https://mellowt1.github.io',
@@ -47,7 +52,7 @@ function cors(request) {
   return {
     'Access-Control-Allow-Origin': ORIGINS.has(o) ? o : 'https://mellowt1.github.io',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Runway-Key',
     'Access-Control-Max-Age': '86400',
     'Cache-Control': 'no-store',
   };
@@ -135,6 +140,7 @@ async function handlePlan(request, env, code) {
     if (!plan) return json({ error: 'no plan for this code' }, request, 404);
     const st = (await readDoc(env, `state:${code}`)) || {};
     const sp = (await readDoc(env, `spends:${code}`)) || {};
+    const bank = await bankSummary(env, code);
     return json(
       {
         plan,
@@ -143,6 +149,7 @@ async function handlePlan(request, env, code) {
         by: st.by || null,
         rev: (st.rev || 0) + (sp.rev || 0),
         spends: Array.isArray(sp.list) ? sp.list : [],
+        bank,
       },
       request
     );
@@ -247,7 +254,7 @@ async function handleSpend(request, env, code, id) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors(request) });
     }
@@ -274,6 +281,17 @@ export default {
       return handleSpend(request, env, code, sp[2] ? sp[2].toLowerCase() : null);
     }
 
+    const reply = (data, status = 200) => json(data, request, status);
+    reply.raw = (text, status = 200) =>
+      new Response(text, { status, headers: { ...cors(request), 'Content-Type': 'application/json' } });
+    const b = await bankRoutes(request, env, ctx, url, reply);
+    if (b) return b;
+
     return json({ error: 'not found' }, request, 404);
+  },
+
+  // Four times a day: the most banks allow for reads without the person present.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(syncAll(env));
   },
 };

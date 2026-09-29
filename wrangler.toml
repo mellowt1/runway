@@ -6,3 +6,13 @@ compatibility_date = "2026-09-01"
 [[kv_namespaces]]
 binding = "RUNWAY_KV"
 id = "fc6033f34bcb43729009b67a836d5f0a"
+
+# Bank sync, four times a day (UTC): about 07:15, 12:15, 17:15 and 22:15 in Amsterdam.
+[triggers]
+crons = ["15 5,10,15,20 * * *"]
+
+# A second brake on PIN guesses, per code, on top of the fail counter in KV.
+[[ratelimits]]
+name = "PIN_LIMITER"
+namespace_id = "7301"
+simple = { limit = 5, period = 60 }
