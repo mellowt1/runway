@@ -17,13 +17,18 @@
 
   "salary": { "amount": 2000, "from": "Feb", "min": 1500, "max": 2500, "step": 50, "note": "Shown under the figure when it is adjusted." },
 
-  "fixed": [{ "name": "Rent", "amount": 500 }],
-  "loans": [{ "name": "A loan", "amount": 100, "note": "shown as the row's second line" }],
+  "fixed": [{ "name": "Rent", "payee": "Landlord BV", "amount": 500 }],
+  "loans": [{ "name": "A loan", "payee": ["Lender", "Lender Services"], "amount": 100, "note": "shown as the row's second line; payee is optional and tells the bank sync which payments are this loan" }],
 
   "subs": [
     { "id": "one", "name": "A subscription", "amount": 10, "cancelled": false },
     { "id": "two", "name": "One already cancelled", "amount": 5, "cancelled": true }
   ],
+
+  "bank": {
+    "_comment": "Optional. Rules put bank payments in a bucket (everyday, bills, debt, oneoff) before the plan's own payee hints. A person's choice in the app beats both.",
+    "rules": [{ "match": "Some Shop", "b": "oneoff" }]
+  },
 
   "flex": [
     { "id": "food", "label": "Food", "plan": 200, "min": 100, "max": 400, "step": 25 },

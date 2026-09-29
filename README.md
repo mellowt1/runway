@@ -16,6 +16,25 @@ Each code holds three things in KV:
 
 The app renders `plan` with `state` laid over it. "Back to the plan" deletes `state` and everything returns to the owner's figures. It never touches `spends`: those are facts, state is what-ifs. Spends live in their own document so a slider moved on a stale page (state is last-writer-wins) cannot erase them.
 
+## The bank
+
+Optional. Once connected, Runway reads the balance and booked payments of the reader's own bank accounts through [Enable Banking](https://enablebanking.com) (PSD2 account information: it can read, it can never pay). The Worker syncs four times a day by cron, and on demand at most every ten minutes.
+
+- **A PIN guards it.** Plan and state still need only the link; the bank needs a device key, which a phone gets by entering the PIN once. The first phone chooses the PIN. Five wrong tries lock it for a day. `DELETE /api/pin/<code>` with the admin token clears it.
+- **Buckets.** Every payment is everyday, bills, debt payments or a one-off. Payees matching the plan's `fixed` and `subs` are bills, `loans` are debt (an item's optional `payee` field names the payee), `bank.rules` in the plan come first, and a person's choice in the app ("this payment only" or "every payment to this payee") beats all of them. Money moved between two connected accounts is paired and never counted.
+- **What it changes.** Everyday payments count against the month's budget together with cash (the spend log becomes "Cash"). One-offs move the forecast. The Month page shows the four buckets, planned against actual.
+- **Documents.** `pin:<code>`, `bank:<code>` (connections, balances), `banktx:<code>` (payments), `tags:<code>` (what people changed). See the header of `worker/src/bank.js`.
+
+### Setting it up
+
+1. The person whose bank it is signs up at Enable Banking and registers an application (restricted production mode only reads the accounts of whoever owns the application, so it has to be theirs). Redirect URL: `https://runway.paul-o-a04.workers.dev/api/bank/callback`. Link their accounts in the Control Panel to activate it.
+2. Put its id and private key on the Worker:
+   ```
+   npx wrangler secret put EB_APP_ID
+   npx wrangler secret put EB_PRIVATE_KEY     (paste the whole .pem)
+   ```
+3. Deploy the Worker (`npx wrangler deploy`; a push does not deploy it), then open Runway, Today → Connect the bank.
+
 ## The link
 
 ```

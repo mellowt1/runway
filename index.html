@@ -302,6 +302,42 @@ details p{font:400 17px/1.4 var(--serif);color:var(--ink-2);margin-top:4px}
 .enter{display:block;width:100%;min-height:54px;border-radius:28px;background:var(--ink);color:var(--on-ink);
   font-size:15px;font-weight:500;margin-top:12px}
 
+/* the bank: payments, buckets, PIN */
+.filters{display:flex;gap:18px;overflow-x:auto;scrollbar-width:none;margin-top:10px;
+  border-bottom:1px solid var(--rule)}
+.filters::-webkit-scrollbar{display:none}
+.filters button{min-height:44px;font:400 18px var(--serif);color:var(--muted);white-space:nowrap;flex:none}
+.filters button[aria-pressed="true"]{color:var(--ink);font-style:italic;
+  text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:7px}
+.search{display:flex;align-items:baseline;gap:12px;padding:8px 0;border-bottom:1px solid var(--rule)}
+.search input{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--ink);font:italic 19px var(--serif);padding:4px 0}
+.search input::placeholder{color:var(--muted);opacity:.7}
+.dayhead{padding:18px 0 2px;border-bottom:1px solid var(--ink)}
+.dayhead + .row{border-top:0}
+.row .who{display:flex;align-items:center;gap:8px;min-width:0}
+.row .who b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.newdot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--green)}
+.row.ns .amt{color:var(--muted)}
+.chip.q{border-color:var(--rule);color:var(--muted)}
+.bk{display:block;width:100%;text-align:left;padding:12px 0 10px}
+.bk + .bk{border-top:1px solid var(--rule)}
+.bk .top{display:flex;align-items:baseline;gap:12px}
+.bk .top b{flex:1;font:400 21px/1.2 var(--serif)}
+.bk .top .amt{font:400 20px var(--serif);white-space:nowrap}
+.bk .of{font-size:12px;color:var(--muted);margin-top:2px}
+.bk .track{position:relative;height:6px;margin-top:8px;background:var(--press)}
+.bk .track i{position:absolute;left:0;top:0;bottom:0;background:var(--ink)}
+.bk .track u{position:absolute;top:-4px;bottom:-4px;width:1px;background:var(--muted)}
+.pay-amt{font:400 56px/1 var(--serif);letter-spacing:-.02em;margin-top:14px;font-variant-numeric:lining-nums}
+.pay-desc{font:400 17px/1.4 var(--serif);color:var(--ink-2);margin-top:10px;overflow-wrap:anywhere}
+.scope{display:grid;gap:8px;margin-top:10px}
+.scope button{min-height:48px;border-radius:24px;border:1px solid var(--ink);font-size:14px;font-weight:500}
+.pindots{display:flex;justify-content:center;gap:14px;padding:26px 0 22px}
+.pindots i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--ink)}
+.pindots i.on{background:var(--ink)}
+.textbtn{min-height:44px;font:italic 17px var(--serif);text-decoration:underline;text-underline-offset:4px}
+.msg{font:400 19px/1.3 var(--serif);border-top:1px solid var(--ink);border-bottom:1px solid var(--rule);padding:12px 0;margin-top:14px}
+
 .boot{max-width:430px;margin:0 auto;padding:120px 24px;text-align:center}
 .boot h1{font:400 64px/1 var(--serif);letter-spacing:-.02em}
 .boot p{font:400 20px/1.3 var(--serif);color:var(--muted);margin-top:12px}
@@ -385,6 +421,23 @@ details p{font:400 17px/1.4 var(--serif);color:var(--ink-2);margin-top:4px}
     <div class="card tight" id="d-dutch"></div>
     <div class="card" id="d-note"></div>
     <div class="card tight" id="d-leave"></div>
+  </section>
+
+  <section class="screen" id="s-bank" hidden>
+    <div class="mast">
+      <button class="back" data-go="today">‹ Today</button>
+      <span class="eyebrow">Bank</span>
+    </div>
+    <div class="card bare" id="b-body"></div>
+  </section>
+
+  <section class="screen" id="s-payments" hidden>
+    <div class="mast">
+      <button class="back" data-go="today">‹ Today</button>
+      <span class="eyebrow" id="p-count"></span>
+    </div>
+    <div class="card bare" id="p-head"></div>
+    <div id="p-rows"></div>
   </section>
 
   <section class="screen" id="s-tasks" hidden>
@@ -556,6 +609,16 @@ function envelope(i, st){
     if (byId[s.cat]) byId[s.cat].spent += s.amt; else other += s.amt;
     if (s.d === today) todaySpent += s.amt;
   });
+  /* Everyday payments from the bank count against the same envelope as cash. They
+     go into the daily chart as entries of their own, never into the cash list. */
+  var bankDays = [], bank = 0;
+  bankIn(i).forEach(function(c){
+    if (!c.counts || c.b !== 'everyday') return;
+    bank += c.out;
+    bankDays.push({ d: c.t.d, amt: c.out });
+    if (c.t.d === today) todaySpent += c.out;
+  });
+  bank = cents(bank);
   cats.forEach(function(c){
     c.spent = cents(c.spent);
     c.left = c.budget === null ? null : cents(c.budget - c.spent);
@@ -564,15 +627,15 @@ function envelope(i, st){
   var legacy = i === 0 ? (Number(st.sept) || 0) : 0;
   var budget = i === 0 ? PLAN.septCeiling : flexTotal(st);
   var total = cents(budget + income);
-  var spent = cents(logged + legacy);
+  var spent = cents(logged + legacy + bank);
   var left = cents(total - spent);
   var from = today > b.first ? today : b.first;
   var daysLeft = today > b.last ? 0 : daysFrom(from, b.last) + 1;
   return {
     index:i, label: PLAN.months[i] ? PLAN.months[i].label : '', first:b.first, last:b.last,
     budget:budget, income:income, total:total, spent:spent, logged:cents(logged), legacy:legacy, other:cents(other),
-    left:left, daysLeft:daysLeft, perDay: left > 0 && daysLeft > 0 ? left / daysLeft : null,
-    todaySpent:cents(todaySpent), count:all.length, cats:cats, list:list, entries:all
+    bank:bank, left:left, daysLeft:daysLeft, perDay: left > 0 && daysLeft > 0 ? left / daysLeft : null,
+    todaySpent:cents(todaySpent), count:all.length, cats:cats, list:list.concat(bankDays), entries:all
   };
 }
 
@@ -580,8 +643,13 @@ function envelope(i, st){
    per category, so going over moves the forecast and staying under does not. */
 function overBudget(i, st){
   var e = envelope(i, st);
+  /* Bank payments have no food / going out / misc split, so with a bank the test is
+     the whole envelope: cash and card together against the budgets together. */
+  if (hasBank()) return cents(Math.max(0, e.logged + e.bank - e.budget));
   return cents(e.cats.reduce(function(t, c){ return t + Math.max(0, c.spent - c.budget); }, 0) + e.other);
 }
+/* One-offs from the bank: money that left outside every budget, so it moves the forecast. */
+function oneOffsIn(i){ return bucketSum(bankIn(i), 'oneoff'); }
 
 /* ─────────────────────────── the model ─────────────────────────── */
 
@@ -621,9 +689,12 @@ function model(st){
   PLAN.months.forEach(function(m, i){
     var items = [];
     if (i === 0){
-      var spentNow = (Number(st.sept) || 0) + envelope(0, st).logged;
+      var e0 = envelope(0, st);
+      var spentNow = (Number(st.sept) || 0) + e0.logged + e0.bank;
       if (spentNow) items.push({ name:'Spending', amount: -spentNow });
     }
+    var off = oneOffsIn(i);
+    if (off) items.push({ name:'One-offs', amount: -off });
     var cameIn = envelope(i, st).income;
     if (cameIn) items.push({ name:'Money in', amount: cameIn });
     if (i > 0){
@@ -682,6 +753,8 @@ function applyRemote(data){
   incoming.tasks = (data.state && data.state.tasks) || {};
   S = incoming;
   SPENDS = Array.isArray(data.spends) ? data.spends : [];
+  if (data.bank) BANKINFO = data.bank;
+  MATCH = null; CL = null;
   saveCache(data.state);
 }
 
@@ -764,7 +837,12 @@ async function poll(){
   if (dirty) return;
   try {
     var data = await pull();
-    if ((data.rev||0) === REMOTE.rev) return;
+    var bankMoved = false;
+    if (data.bank){
+      BANKINFO = data.bank;
+      if (bankKey && data.bank.rev !== BANKREV){ BANKREV = data.bank.rev; bankMoved = await pullBank(); }
+    }
+    if ((data.rev||0) === REMOTE.rev){ if (bankMoved){ render(); renderSheet(); } return; }
     var keepPage = page;
     applyRemote(data);
     page = keepPage;
@@ -808,6 +886,345 @@ async function resetAll(){
     if (res.ok){ var out = await res.json(); REMOTE = { rev: out.rev, by: ME||null, updated: out.updated }; }
   } catch(e){}
   renderLive();
+}
+
+/* ─────────────────────────── the bank ───────────────────────────
+   Balances and booked payments from the connected banks, read through the Worker
+   behind a PIN. Plan and state need only the link; this needs the key a phone gets
+   by entering the PIN once. Without it the app works exactly as before.
+
+   Every payment falls in one bucket: bills (a payee matching the plan's fixed costs
+   or subscriptions), debt payments (matching its loans), one-offs (only by a rule
+   or a person's choice), everyday (everything else). Money in is its own thing,
+   unless someone moves it into a bucket, where it counts as a refund. A person's
+   choice for one payment beats a payee rule, which beats the plan. The bank is the
+   record: amounts and dates are never edited here. */
+
+var BANK = null;                              // { conns, synced, rev, tx:{list}, tags:{pay,payee} }
+var BANKINFO = { pin:false, conns:0, rev:0 };  // from the plan GET, needs no PIN
+var BANKREV = -1;
+var bankKey = null;
+var bankMsg = '';
+var BANKS_LIST = null, bankCountry = 'NL', bankQuery = '';
+var payFilter = { b:'all', k:'all', q:'', m:null, hidden:false };
+var SEEN = null;
+var CL = null;                                 // classified payments, rebuilt when BANK changes
+
+var BUCKETS = [['everyday','Everyday'],['bills','Bills'],['debt','Debt payments'],['oneoff','One-offs']];
+function bucketLabel(b){
+  if (b === 'in') return 'Money in';
+  var x = BUCKETS.filter(function(p){ return p[0] === b; })[0];
+  return x ? x[1] : b;
+}
+
+function bankKeyName(){ return 'runway-bankkey-' + CODE; }
+function bankCacheName(){ return 'runway-bank-' + CODE; }
+function seenName(){ return 'runway-seen-' + CODE; }
+function hasBank(){ return !!(BANK && BANK.conns && BANK.conns.length); }
+
+async function bankFetch(path, opts){
+  opts = opts || {};
+  var headers = { 'Content-Type':'application/json' };
+  if (bankKey) headers['X-Runway-Key'] = bankKey;
+  var res = await fetch(API + path, {
+    method: opts.method || 'GET', headers: headers, cache:'no-store',
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  var data = await res.json().catch(function(){ return null; });
+  /* The key was withdrawn (the PIN changed, or this phone was forgotten). */
+  if (res.status === 401 && data && data.locked) dropBank();
+  return { ok: res.ok, status: res.status, data: data };
+}
+function dropBank(){
+  bankKey = null; BANK = null; CL = null; BANKREV = -1;
+  store.set(bankKeyName(), null);
+  store.set(bankCacheName(), null);
+}
+function setBank(data){
+  BANK = data; CL = null;
+  store.set(bankCacheName(), data);
+  /* The first batch from an account this phone has not seen before counts as seen:
+     ninety days of new-dots would say nothing. SEEN._k lists those accounts. */
+  SEEN = SEEN || {};
+  var known = SEEN._k || [], fresh = {}, any = false;
+  txList().forEach(function(t){ if (known.indexOf(t.k) === -1) fresh[t.k] = 1; });
+  if (Object.keys(fresh).length){
+    txList().forEach(function(t){ if (fresh[t.k]){ SEEN[t.id] = 1; any = true; } });
+    SEEN._k = known.concat(Object.keys(fresh));
+  }
+  if (any) store.set(seenName(), SEEN);
+}
+async function pullBank(){
+  if (!bankKey) return false;
+  try {
+    var r = await bankFetch('/api/bank/' + CODE);
+    if (r.ok && r.data){ setBank(r.data); return true; }
+  } catch(e){}
+  return false;
+}
+
+function txList(){ return (BANK && BANK.tx && BANK.tx.list) || []; }
+function tags(){ return (BANK && BANK.tags) || { pay:{}, payee:{} }; }
+
+/* Same normalising as the Worker's payeeKey: lower case, letters only, and for a
+   rule key only the first three words, so a branch number does not make a new payee. */
+function normText(s){
+  return String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z ]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+}
+function payeeKey(s){ return normText(s).slice(0, 3).join(' '); }
+function payeeOf(t){ return t.who || t.desc || ''; }
+/* The rule key as words a person reads: "albert heijn" → "Albert Heijn". */
+function payeeName(s){
+  return payeeKey(s).replace(/[a-z]/g, function(c){ return c.toUpperCase(); });
+}
+
+/* The plan's own hints: fixed costs and kept subscriptions are bills, loans are debt
+   payments. An item can name its payee (`payee`, a string or a list); otherwise its
+   name is tried. Plan rules (`bank.rules`) come first. Words match whole. */
+var MATCH = null;
+function matchers(){
+  if (MATCH && MATCH.plan === PLAN) return MATCH.list;
+  var list = [];
+  function terms(x){
+    var t = x.payee || x.name;
+    return (Array.isArray(t) ? t : [t]).map(function(s){ return normText(s).join(' '); })
+      .filter(function(s){ return s.length >= 3; });
+  }
+  ((PLAN.bank && PLAN.bank.rules) || []).forEach(function(r){ list.push({ terms: terms({ payee:r.match }), b:r.b }); });
+  (PLAN.fixed || []).forEach(function(x){ list.push({ terms: terms(x), b:'bills' }); });
+  (PLAN.subs || []).filter(function(s){ return !s.cancelled; }).forEach(function(x){ list.push({ terms: terms(x), b:'bills' }); });
+  (PLAN.loans || []).forEach(function(x){ list.push({ terms: terms(x), b:'debt' }); });
+  MATCH = { plan: PLAN, list: list };
+  return list;
+}
+
+function classify(t){
+  var tg = tags(), tag = tg.pay[t.id] || {}, rule = tg.payee[payeeKey(payeeOf(t))] || null;
+  var c = { t:t, tag:tag, rule:rule, hidden: !!tag.hide, ns: !!(tag.ns || t.own), own: !!t.own, flag: !!tag.flag };
+  if (tag.b){ c.b = tag.b; c.src = 'tag'; }
+  else if (rule){ c.b = rule.b; c.src = 'payee'; }
+  else if (t.amt > 0){ c.b = 'in'; c.src = 'auto'; }
+  else {
+    var hay = ' ' + normText(t.who + ' ' + (t.desc || '')).join(' ') + ' ';
+    var m = matchers().filter(function(x){
+      return x.terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; });
+    })[0];
+    c.b = m ? m.b : 'everyday'; c.src = m ? 'plan' : 'auto';
+  }
+  /* What it takes from a bucket: a debit adds, a credit moved into a bucket is a refund. */
+  c.counts = !c.hidden && !c.ns && c.b !== 'in';
+  c.out = -t.amt;
+  return c;
+}
+function classified(){
+  if (!CL) CL = txList().map(classify);
+  return CL;
+}
+/* Payments counted in month i; month 0 only from PLAN.asOf, like spendsIn(). */
+function bankIn(i){
+  if (!hasBank()) return [];
+  return classified().filter(function(c){
+    return monthIndexOf(c.t.d) === i && (i > 0 || c.t.d >= PLAN.asOf);
+  });
+}
+function bucketSum(list, b){
+  return cents(list.reduce(function(s, c){ return s + (c.counts && c.b === b ? c.out : 0); }, 0));
+}
+
+function accountOf(k){
+  var out = null;
+  ((BANK && BANK.conns) || []).forEach(function(c){
+    (c.accounts || []).forEach(function(a){ if (a.k === k) out = { bank:c.bank, conn:c, a:a }; });
+  });
+  return out;
+}
+function bankShort(name){ return String(name || '').replace(/\s+(Bank|N\.?V\.?|UAB)$/i, ''); }
+function inTheBank(){
+  var sum = 0, n = 0;
+  ((BANK && BANK.conns) || []).forEach(function(c){
+    (c.accounts || []).forEach(function(a){
+      if (a.bal !== null && a.bal !== undefined && (!a.cur || a.cur === 'EUR')){ sum += a.bal; n++; }
+    });
+  });
+  return n ? cents(sum) : null;
+}
+function isNew(c){ return SEEN && !SEEN[c.t.id]; }
+function markSeen(){
+  if (!hasBank()) return;
+  SEEN = SEEN || {};
+  txList().forEach(function(t){ SEEN[t.id] = 1; });
+  store.set(seenName(), SEEN);
+}
+/* A consent ends; a week before, the bank row says so. */
+function consentNote(c){
+  if (c.status === 'expired') return { warn:true, text:'Needs reconnecting' };
+  if (c.status === 'error') return { warn:true, text:'Last sync failed' + (c.err === 'rate_limited' ? ': the bank asked to wait' : '') };
+  if (c.until){
+    var days = Math.floor((Date.parse(c.until) - Date.now()) / 864e5);
+    if (days <= 7) return { warn:true, text:'Access ends ' + shortDate(c.until.slice(0, 10)) + ' · reconnect to keep it' };
+    return { warn:false, text:'Access until ' + shortDate(c.until.slice(0, 10)) };
+  }
+  return { warn:false, text:'' };
+}
+
+/* ── tags: a change shows at once, goes to the Worker, and can be undone ── */
+
+function applyTag(body){
+  var tg = BANK.tags = BANK.tags || { pay:{}, payee:{} };
+  tg.pay = tg.pay || {}; tg.payee = tg.payee || {};
+  var by = ME || null, at = new Date().toISOString();
+  if (typeof body.payee === 'string'){
+    var p = payeeKey(body.payee);
+    if (body.b === null) delete tg.payee[p]; else tg.payee[p] = { b: body.b, by: by, at: at };
+  } else {
+    var cur = Object.assign({}, tg.pay[body.id] || {});
+    delete cur.by; delete cur.at;
+    if ('b' in body){ if (body.b === null) delete cur.b; else cur.b = body.b; }
+    ['ns','hide','flag'].forEach(function(f){ if (f in body){ if (body[f]) cur[f] = 1; else delete cur[f]; } });
+    if (Object.keys(cur).length) tg.pay[body.id] = Object.assign(cur, { by: by, at: at });
+    else delete tg.pay[body.id];
+  }
+  CL = null;
+}
+/* The body that puts one payment's tag, or one payee rule, back as it is now. */
+function undoFor(body){
+  var tg = tags();
+  if (typeof body.payee === 'string'){
+    var r = tg.payee[payeeKey(body.payee)];
+    return { payee: body.payee, b: r ? r.b : null };
+  }
+  var t = tg.pay[body.id] || {};
+  return { id: body.id, b: t.b || null, ns: !!t.ns, hide: !!t.hide, flag: !!t.flag };
+}
+var undoTag = null, undoTagTimer = null;
+async function tagWrite(bodies, msg, isUndo){
+  if (!BANK) return;
+  var back = bodies.map(undoFor).reverse();
+  bodies.forEach(applyTag);
+  store.set(bankCacheName(), BANK);
+  if (!isUndo){
+    undoItem = null;
+    undoTag = { msg: msg, bodies: back };
+    clearTimeout(undoTagTimer);
+    undoTagTimer = setTimeout(function(){ undoTag = null; renderUndo(); }, 6000);
+  } else {
+    undoTag = null;
+  }
+  render(); renderSheet();
+  for (var i = 0; i < bodies.length; i++){
+    var r = null;
+    try { r = await bankFetch('/api/tag/' + CODE, { method:'POST', body: Object.assign({ by: ME || null }, bodies[i]) }); }
+    catch(e){ r = null; }
+    if (!r || !r.ok){
+      /* Put the screen back the way the Worker has it. */
+      back.forEach(applyTag);
+      undoTag = null;
+      bankMsg = 'That change did not save. Check the connection and try again.';
+      await pullBank();
+      render(); renderSheet();
+      return;
+    }
+  }
+}
+
+/* ── PIN ── */
+
+var pinDraft = null;   // { mode:'unlock'|'set'|'confirm'|'change', digits:'', first:'', err:'', then:null }
+
+function openPin(mode, then){
+  pinDraft = { mode: mode, digits:'', first:'', err:'', then: then || null };
+  openSheet('pin');
+}
+function pinKey(k){
+  if (!pinDraft) return;
+  if (k === 'del') pinDraft.digits = pinDraft.digits.slice(0, -1);
+  else if (/^\d$/.test(k) && pinDraft.digits.length < 8) pinDraft.digits += k;
+  pinDraft.err = '';
+  renderSheet();
+}
+async function pinSubmit(){
+  var d = pinDraft, p = d.digits;
+  if (p.length < 4){ d.err = 'Four to eight digits.'; return renderSheet(); }
+  if (d.mode === 'set' || d.mode === 'change'){
+    d.first = p; d.digits = ''; d.mode = d.mode === 'set' ? 'confirm' : 'confirm-change';
+    return renderSheet();
+  }
+  if ((d.mode === 'confirm' || d.mode === 'confirm-change') && p !== d.first){
+    d.digits = ''; d.first = ''; d.mode = d.mode === 'confirm' ? 'set' : 'change';
+    d.err = 'Those did not match. Choose it again.';
+    return renderSheet();
+  }
+  d.err = 'checking…'; renderSheet();
+  var path = d.mode === 'unlock' ? '/api/unlock/' : '/api/pin/';
+  var r;
+  try { r = await bankFetch(path + CODE, { method:'POST', body:{ pin: p, by: ME || null } }); }
+  catch(e){ d.err = 'Could not reach the Worker.'; d.digits = ''; return renderSheet(); }
+  if (r.ok && r.data && r.data.key){
+    bankKey = r.data.key;
+    store.set(bankKeyName(), bankKey);
+    var then = d.then;
+    closeSheet();
+    await pullBank();
+    if (then) then();
+    render();
+    return;
+  }
+  d.digits = '';
+  if (r.status === 423) d.err = 'Too many wrong tries. Locked until ' +
+    new Date(r.data.until).toLocaleString('en-GB', { weekday:'short', hour:'2-digit', minute:'2-digit' }) + '.';
+  else if (r.status === 429) d.err = 'Too many tries. Wait a minute.';
+  else if (r.status === 403) d.err = 'Wrong PIN. ' + r.data.left + (r.data.left === 1 ? ' try' : ' tries') + ' left.';
+  else if (r.status === 409){ d.mode = 'unlock'; d.err = 'A PIN is already set. Enter it.'; }
+  else if (r.status === 404 && r.data && r.data.nopin){ d.mode = 'set'; d.err = 'No PIN yet. Choose one.'; }
+  else d.err = 'That did not work (' + r.status + ').';
+  renderSheet();
+}
+
+/* ── connecting ── */
+
+async function loadBanks(){
+  BANKS_LIST = 'loading';
+  render();
+  var r = null;
+  try { r = await bankFetch('/api/bank/' + CODE + '/banks?country=' + bankCountry); } catch(e){}
+  BANKS_LIST = r && r.ok ? r.data.banks : { error: (r && r.data && r.data.error) || 'unreachable' };
+  render();
+}
+async function connectBank(name, country){
+  bankMsg = 'Opening ' + name + '…';
+  render();
+  var r = null;
+  try { r = await bankFetch('/api/bank/' + CODE + '/connect', { method:'POST', body:{ name:name, country:country, by: ME || null } }); }
+  catch(e){}
+  if (r && r.ok && r.data.url){ location.href = r.data.url; return; }
+  bankMsg = 'Could not start: ' + ((r && r.data && (r.data.detail || r.data.error)) || 'no connection') + '.';
+  render();
+}
+async function syncNow(){
+  bankMsg = 'Syncing…';
+  render();
+  var r = null;
+  try { r = await bankFetch('/api/bank/' + CODE + '/sync', { method:'POST' }); } catch(e){}
+  if (r && r.ok && r.data.skipped) bankMsg = 'Synced ' + ago(r.data.synced) + '. It can sync again ten minutes after.';
+  else if (r && r.ok) bankMsg = r.data.added ? r.data.added + ' new ' + (r.data.added === 1 ? 'payment.' : 'payments.') : 'Up to date.';
+  else bankMsg = 'The sync did not finish' + (r && r.data && r.data.errors && r.data.errors[0] ? ': ' + r.data.errors[0].kind.replace(/_/g, ' ') : '') + '.';
+  await pullBank();
+  render();
+}
+async function disconnectBank(id){
+  var c = (BANK.conns || []).filter(function(x){ return x.id === id; })[0];
+  if (!c || !confirm('Disconnect ' + c.bank + '? Its payments leave Runway, and reconnecting means logging in at the bank again.')) return;
+  await bankFetch('/api/bank/' + CODE + '/disconnect', { method:'POST', body:{ conn:id } });
+  await pullBank();
+  bankMsg = c.bank + ' is disconnected.';
+  render();
+}
+async function forgetPhone(){
+  if (!confirm('Forget this phone? The bank stays connected; this phone needs the PIN again.')) return;
+  try { await bankFetch('/api/lock/' + CODE, { method:'POST' }); } catch(e){}
+  dropBank();
+  render();
 }
 
 /* ─────────────────────────── charts ─────────────────────────── */
@@ -1002,6 +1419,70 @@ function renderSheet(){
       '<button class="enter" data-act="save-spend">' + (received ? 'Enter money in' : 'Enter in the ledger') + '</button>';
   }
 
+  else if (sheetKind === 'pin'){
+    var pd = pinDraft;
+    var title = { unlock:'Enter the PIN', set:'Choose a PIN', confirm:'Once more', change:'A new PIN', 'confirm-change':'Once more' }[pd.mode];
+    var hint = {
+      unlock: 'The PIN keeps the bank on phones that know it.',
+      set: 'Four to eight digits. Share it with the one other person who should see the bank.',
+      confirm: 'Type the same PIN again.',
+      change: 'Every other phone will need the new PIN.',
+      'confirm-change': 'Type the new PIN again.'
+    }[pd.mode];
+    var n = Math.max(4, pd.digits.length);
+    var pk = ['1','2','3','4','5','6','7','8','9','','0','del'];
+    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Cancel</button>' +
+        '<h2 id="sheet-title">' + esc(title) + '</h2><span></span></div>' +
+      '<p class="hint" style="text-align:center">' + esc(hint) + '</p>' +
+      '<div class="pindots" aria-label="' + pd.digits.length + ' digits entered">' +
+        Array.from({ length: n }, function(_, i){ return '<i class="' + (i < pd.digits.length ? 'on' : '') + '"></i>'; }).join('') + '</div>' +
+      '<p class="err" role="alert" style="text-align:center;min-height:20px">' + esc(pd.err) + '</p>' +
+      '<div class="pad">' + pk.map(function(k){
+        if (!k) return '<button type="button" disabled aria-hidden="true"></button>';
+        return '<button type="button" data-pinkey="' + k + '" aria-label="' + (k === 'del' ? 'Delete' : k) + '">' + (k === 'del' ? '⌫' : k) + '</button>';
+      }).join('') + '</div>' +
+      '<button class="enter" data-act="pin-go">' + (pd.mode === 'unlock' ? 'Unlock' : pd.mode === 'set' || pd.mode === 'change' ? 'Next' : 'Set the PIN') + '</button>';
+  }
+
+  else if (sheetKind === 'pay'){
+    var c = classified().filter(function(x){ return x.t.id === payDraft.id; })[0];
+    if (!c){ html = '<h2 id="sheet-title">Gone</h2><p class="hint">This payment is no longer in the list.</p>'; }
+    else {
+      var t = c.t, acct = accountOf(t.k), credit = t.amt > 0;
+      var pick = payDraft.b;
+      var choices = BUCKETS.concat(credit ? [['in','Money in']] : []);
+      var whyNow = c.own ? 'Money between your own connected accounts: never counted.'
+        : c.src === 'tag' ? (byOther(c.tag) ? 'Moved here by ' + c.tag.by + '.' : 'Moved here by hand.')
+        : c.src === 'payee' ? 'Every payment to this payee goes here' + (byOther(c.rule) ? ', set by ' + c.rule.by : '') + '.'
+        : c.src === 'plan' ? 'Matched to the plan.'
+        : credit ? 'Money coming in counts nowhere unless you move it.' : 'Nothing matched, so it counts as everyday.';
+      html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2>Payment</h2>' +
+          '<span class="date">' + esc(dayLabel(t.d)) + '</span></div>' +
+        '<h2 id="sheet-title" style="margin-top:6px">' + esc(t.who || 'Payment') + '</h2>' +
+        '<p class="pay-amt' + (credit ? ' good' : '') + '">' + (credit ? '+' : '') + esc(fmtAmt(Math.abs(t.amt))) + '</p>' +
+        (t.desc ? '<p class="pay-desc">' + esc(t.desc) + '</p>' : '') +
+        '<p class="small" style="margin-top:8px">' + esc(acct ? acct.bank + (acct.a.name ? ' · ' + acct.a.name : '') + (acct.a.iban4 ? ' •• ' + acct.a.iban4 : '') : '') + '</p>' +
+        '<div class="card"><p class="eyebrow ink">' + (credit && c.b !== 'in' ? 'Counts as a refund in' : 'Counts in') + '</p>' +
+          '<div class="tabsel" role="group" aria-label="Bucket" style="grid-template-columns:repeat(' + (choices.length > 4 ? 3 : 2) + ',minmax(0,1fr))">' +
+          choices.map(function(b){
+            var on = pick ? pick === b[0] : c.b === b[0];
+            return '<button type="button" data-move="' + b[0] + '" aria-pressed="' + on + '">' + esc(b[1]) + '</button>';
+          }).join('') + '</div>' +
+          '<p class="small" style="margin-top:6px">' + esc(whyNow) + '</p>' +
+          (pick && pick !== c.b ? '<div class="scope">' +
+            '<button data-scope="one">This payment only</button>' +
+            (payeeKey(payeeOf(t)) ? '<button data-scope="always">Every payment to ' + esc(payeeName(payeeOf(t))) + '</button>' : '') +
+          '</div>' : '') +
+        '</div>' +
+        '<div class="card tight">' +
+          (c.own ? '' : togRow('ns', 'Not spending', 'A transfer to yourself, or money paid back', !!c.tag.ns)) +
+          togRow('hide', 'Don’t count this', 'It leaves the list and every total', !!c.tag.hide) +
+          togRow('flag', 'I don’t know this', 'Marks it so both of you can see it', !!c.tag.flag) +
+        '</div>' +
+        (c.tag.at ? '<p class="small" style="margin-top:12px">Last changed ' + esc(ago(c.tag.at)) + (c.tag.by ? ' by ' + esc(c.tag.by) : '') + '.</p>' : '');
+    }
+  }
+
   else if (sheetKind === 'changed'){
     html = '<h2 id="sheet-title">What changed</h2>' +
       '<p class="hint">' + (REMOTE.by ? esc(REMOTE.by) + '’s numbers, ' + ago(REMOTE.updated) : 'Against the plan') + '</p>' +
@@ -1011,6 +1492,33 @@ function renderSheet(){
   }
 
   $('sheet-body').innerHTML = html;
+}
+
+var payDraft = null;   // { id, b } while a payment's sheet is open; b is a bucket picked but not yet scoped
+function togRow(f, label, sub, on){
+  return '<label class="row"><span class="grow"><b>' + esc(label) + '</b><span class="sub">' + esc(sub) + '</span></span>' +
+    '<input type="checkbox" class="sw" data-tog="' + f + '"' + (on ? ' checked' : '') + ' aria-label="' + esc(label) + '"></label>';
+}
+function openPayment(id){
+  payDraft = { id: id, b: null };
+  if (SEEN && !SEEN[id]){ SEEN[id] = 1; store.set(seenName(), SEEN); }
+  openSheet('pay');
+}
+function movePayment(scope){
+  var c = classified().filter(function(x){ return x.t.id === payDraft.id; })[0];
+  var b = payDraft.b;
+  if (!c || !b) return;
+  payDraft.b = null;
+  var name = c.t.who || 'this payment';
+  if (scope === 'always'){
+    /* The rule should decide; a hand-set bucket on this payment would outvote it. */
+    var bodies = [{ payee: payeeOf(c.t), b: b }];
+    if (c.tag.b) bodies.push({ id: c.t.id, b: null });
+    return tagWrite(bodies, 'Every ' + payeeName(payeeOf(c.t)) + ' → ' + bucketLabel(b));
+  }
+  /* Moving back to where the payee rule or the plan would put it clears the choice. */
+  var natural = classify({ id:'x', k:c.t.k, d:c.t.d, amt:c.t.amt, who:c.t.who, desc:c.t.desc });
+  tagWrite([{ id: c.t.id, b: natural.b === b ? null : b }], name + ' → ' + bucketLabel(b));
 }
 
 /* ── logging a spend: plain functions the sheet calls ── */
@@ -1139,12 +1647,17 @@ function diffRows(){
 /* ─────────────────────────── render ─────────────────────────── */
 
 var PAGES = [['today','Today'],['forecast','Forecast'],['tasks','Tasks']];
-var SCREENS = ['today','forecast','month','subs','debts','tasks','spends'];
+var SCREENS = ['today','forecast','month','subs','debts','tasks','spends','bank','payments'];
 var cameFrom = 'today';
 
 function go(p, pushState){
   if (SCREENS.indexOf(p) === -1) p = 'today';
   if (p === 'subs') cameFrom = (page === 'month') ? 'month' : 'forecast';
+  /* Leaving the payments marks what was on it as seen; arriving from Today clears a
+     drill-down left over from Month. */
+  if (page === 'payments' && p !== 'payments') markSeen();
+  if (p !== 'payments') payFilter.m = null;
+  if (p !== 'bank' && page === 'bank') bankMsg = '';
   page = p;
   SCREENS.forEach(function(id){ $('s-' + id).hidden = id !== p; });
   if (pushState && location.hash !== '#' + p) history.pushState(null, '', '#' + p);
@@ -1170,7 +1683,7 @@ function render(){
 
   $('tabs').hidden = false;
   $('tabs').firstElementChild.innerHTML = PAGES.map(function(p){
-    var here = (page === 'month' || page === 'debts' || page === 'spends') ? 'today' : (page === 'subs' ? cameFrom : page);
+    var here = ['month','debts','spends','bank','payments'].indexOf(page) > -1 ? 'today' : (page === 'subs' ? cameFrom : page);
     return '<button data-go="' + p[0] + '" aria-current="' + (here === p[0] ? 'page' : 'false') + '">' +
       p[1] + '<em></em></button>';
   }).join('');
@@ -1194,11 +1707,11 @@ function render(){
     ? cur.M.slice(d.lo, d.hi+1).map(function(m){ return m.label; }).join(' and ') + ' ' +
       (d.hi > d.lo ? 'are' : 'is') + ' ' + PLAN.bridge.short
     : 'Never below zero';
-  $('t-bank').innerHTML =
-    '<div class="row" style="padding-top:0"><span class="grow"><b>In the bank</b>' +
-      '<span class="sub">As of ' + esc(shortDate(PLAN.asOf)) + '</span></span>' +
-      '<span class="amt">' + esc(fmt(PLAN.start)) + '</span></div>' +
+  $('t-bank').innerHTML = todayBankHtml(env) +
     '<button class="link" data-go="forecast"><span>' + esc(dipText) + '</span><span class="chev">›</span></button>';
+  document.querySelectorAll('[data-sheet="log"]').forEach(function(b){
+    if (b.classList.contains('pill')) b.textContent = hasBank() ? 'Cash' : 'New entry';
+  });
 
   $('t-nav').innerHTML = [
     ['month','Month','What a normal month costs', fmt(cur.monthly)],
@@ -1241,6 +1754,7 @@ function render(){
   $('m-hero').innerHTML += '<div class="split">' + groups.map(function(g){
     return '<i style="flex:' + g[1] + ';opacity:' + g[2] + '"></i>';
   }).join('') + '</div>';
+  $('m-hero').innerHTML = monthBucketsHtml(ci) + $('m-hero').innerHTML;
   $('m-rows').innerHTML = groups.map(function(g){
     var pct = Math.round(g[1] / cur.monthly * 100);
     var tag = g[3] ? 'button' : 'div';
@@ -1333,6 +1847,13 @@ function render(){
   $('sp-rows').innerHTML = le ? spendRowsHtml(le) : '';
   $('sp-rows').hidden = !le;
 
+  if (page === 'bank' && !(document.activeElement && document.activeElement.id === 'bank-q')) $('b-body').innerHTML = bankScreenHtml();
+  if (page === 'payments'){
+    /* Redrawing the head while someone types in its search box would take the box away. */
+    if (!(document.activeElement && document.activeElement.id === 'pay-q')) $('p-head').innerHTML = paymentsHeadHtml();
+    $('p-rows').innerHTML = paymentRowsHtml();
+  }
+
   renderFloat(cur, base);
   renderUndo();
 }
@@ -1380,6 +1901,7 @@ function catsHtml(e){
       '<span' + (!first && c.left < 0 ? ' class="over"' : '') + '>' + (first ? '—' : esc(bare(c.left))) + '</span></div>';
   }).join('');
   if (e.other) rows += '<div class="lg-r"><span>Other</span><span class="b">—</span><span>' + esc(bare(e.other)) + '</span><span>—</span></div>';
+  if (hasBank()) rows += '<div class="lg-r"><span>Card &amp; bank</span><span class="b">—</span><span>' + esc(bare(e.bank)) + '</span><span>—</span></div>';
   if (e.legacy) rows += '<div class="lg-r"><span>Earlier</span><span class="b">—</span><span>' + esc(bare(e.legacy)) + '</span><span>—</span></div>';
   if (e.income) rows += '<div class="lg-r"><span>Money in</span><span class="good">+' + esc(bare(e.income)) + '</span><span>—</span><span>—</span></div>';
   return '<div class="ledger">' +
@@ -1387,8 +1909,11 @@ function catsHtml(e){
     rows +
     '<div class="lg-r total"><span>Total</span><span class="b">' + esc(bare(e.total)) + '</span>' +
       '<span>' + esc(bare(e.spent)) + '</span><span' + (e.left < 0 ? ' class="over"' : '') + '>' + esc(bare(e.left)) + '</span></div>' +
+    (hasBank() ? '<button class="link" data-pays="everyday"><span>Everyday payments this month</span>' +
+      '<span class="n">' + bankIn(e.index).filter(function(c){ return c.counts && c.b === 'everyday'; }).length + ' ›</span></button>' : '') +
     '<button class="link" data-go="spends"><span>' +
-      (e.count ? 'Every entry this month' : 'No entries yet this month') + '</span>' +
+      (hasBank() ? (e.count ? 'Cash entered this month' : 'No cash entered this month')
+                 : (e.count ? 'Every entry this month' : 'No entries yet this month')) + '</span>' +
       '<span class="n">' + (e.count ? e.count + ' ›' : '') + '</span></button>' +
   '</div>';
 }
@@ -1410,7 +1935,201 @@ function spendsHeroHtml(e){
     '<p class="deck">spent in ' + esc(e.label) + (e.index === 0 ? ' since ' + esc(shortDate(PLAN.asOf)) : '') +
       ', ' + esc(fmtLeft(e.left)) + (e.left < 0 ? '' : ' left') + ' of ' + esc(fmtAmt(e.total)) + '.</p>' +
     statusHtml() +
-    '<button class="enter" data-sheet="log" style="margin-top:18px">New entry</button>';
+    (hasBank() ? '<p class="small" style="margin-top:10px">Cash only: card and bank payments come in from the bank by themselves.</p>' : '') +
+    '<button class="enter" data-sheet="log" style="margin-top:18px">' + (hasBank() ? 'Enter cash' : 'New entry') + '</button>';
+}
+
+/* ── the bank on screen ── */
+
+function todayBankHtml(env){
+  if (hasBank()){
+    var total = inTheBank(), when = BANK.synced ? 'synced ' + ago(BANK.synced) : 'not synced yet';
+    var names = BANK.conns.map(function(c){ return bankShort(c.bank); }).join(' + ');
+    var warn = BANK.conns.some(function(c){ return consentNote(c).warn; });
+    var fresh = classified().filter(isNew).length;
+    var monthN = env ? bankIn(env.index).filter(function(c){ return !c.hidden; }).length : 0;
+    return '<button class="row" data-go="bank" style="padding-top:0"><span class="grow"><b>In the bank</b>' +
+        '<span class="sub">' + esc(names + ' · ' + (warn ? 'needs attention' : when)) + '</span></span>' +
+        '<span class="amt">' + (total === null ? '—' : esc(fmt(total))) + '</span><span class="chev">›</span></button>' +
+      '<button class="row" data-pays="all"><span class="grow"><b>Payments</b>' +
+        '<span class="sub">' + esc(fresh ? fresh + ' new since you last looked' : (env ? monthN + ' in ' + env.label : 'from the bank')) + '</span></span>' +
+        (fresh ? '<span class="newdot"></span>' : '') + '<span class="chev">›</span></button>';
+  }
+  var planRow = '<div class="row" style="padding-top:0"><span class="grow"><b>In the bank</b>' +
+    '<span class="sub">As of ' + esc(shortDate(PLAN.asOf)) + '</span></span>' +
+    '<span class="amt">' + esc(fmt(PLAN.start)) + '</span></div>';
+  if (BANKINFO.conns && !bankKey){
+    return planRow + '<button class="row" data-pin="unlock"><span class="grow"><b>The bank is connected</b>' +
+      '<span class="sub">Enter the PIN to see it on this phone</span></span><span class="chev">›</span></button>';
+  }
+  return planRow + '<button class="row" data-go="bank"><span class="grow"><b>Connect the bank</b>' +
+    '<span class="sub">Balances and payments, by themselves</span></span><span class="chev">›</span></button>';
+}
+
+/* This month in four buckets: what the plan expects against what the bank shows. */
+function monthBucketsHtml(ci){
+  if (!hasBank() || !inRange(ci)) return '';
+  var list = bankIn(ci), key = PLAN.months[ci].key, e = envelope(ci);
+  var oneOffPlan = (PLAN.oneOffs || []).filter(function(o){ return o.month === key && o.amount < 0; })
+    .reduce(function(t, o){ return t - o.amount; }, 0) + (S.gem === key ? PLAN.gemeente.amount : 0);
+  var rows = [
+    ['everyday', e.index === 0 ? e.budget : flexTotal(S), cents(e.bank + e.logged), 'cash included'],
+    ['bills', sum(PLAN.fixed) + sum(keptSubs(S)), bucketSum(list, 'bills'), ''],
+    ['debt', sum(PLAN.loans), bucketSum(list, 'debt'), ''],
+    ['oneoff', oneOffPlan, bucketSum(list, 'oneoff'), '']
+  ];
+  return '<p class="eyebrow ink">' + esc(PLAN.months[ci].label) + ' so far</p>' +
+    '<div style="margin:6px 0 26px">' + rows.map(function(r){
+      var hi = Math.max(r[1], r[2], 1), w = Math.min(100, r[2] / hi * 100), mark = r[1] / hi * 100;
+      return '<button class="bk" data-pays="' + r[0] + '" data-month="' + ci + '">' +
+        '<span class="top"><b>' + esc(bucketLabel(r[0])) + '</b><span class="amt">' + esc(fmt(r[2])) + '</span><span class="chev">›</span></span>' +
+        '<span class="of" style="display:block">' + (r[1] ? 'of ' + esc(fmt(r[1])) + ' planned' : 'none planned') +
+          (r[3] ? ' · ' + r[3] : '') + '</span>' +
+        '<span class="track" style="display:block"><i style="width:' + w.toFixed(1) + '%"></i>' +
+          (r[1] ? '<u style="left:' + Math.min(100, mark).toFixed(1) + '%"></u>' : '') + '</span></button>';
+    }).join('') + '</div>';
+}
+
+function bankScreenHtml(){
+  var msg = bankMsg ? '<p class="msg">' + esc(bankMsg) + '</p>' : '';
+  if (!bankKey){
+    var hasPin = BANKINFO.pin;
+    return '<p class="fig sm">Bank</p>' +
+      '<p class="deck">' + (BANKINFO.conns ? 'A bank is connected. Enter the PIN to see it on this phone.'
+        : hasPin ? 'Enter the PIN, then connect a bank.'
+        : 'Choose a PIN first. Anyone who opens Runway on another phone needs it to see the bank.') + '</p>' + msg +
+      '<button class="enter" data-pin="' + (hasPin ? 'unlock' : 'set') + '" style="margin-top:22px">' +
+        (hasPin ? 'Enter the PIN' : 'Choose a PIN') + '</button>';
+  }
+  var html = '';
+  if (hasBank()){
+    var total = inTheBank();
+    html += '<p class="lbl">In the bank</p><p class="fig sm">' + (total === null ? '—' : esc(fmt(total))) + '</p>' +
+      '<p class="deck">' + (BANK.synced ? 'Synced ' + esc(ago(BANK.synced)) + '. ' : '') +
+        'It syncs four times a day by itself.</p>' + msg +
+      '<div class="acts"><button class="ghost" data-act="sync">Sync now</button></div>';
+    BANK.conns.forEach(function(c){
+      var note = consentNote(c);
+      html += '<div class="card"><p class="eyebrow ink">' + esc(c.bank) + '</p>' +
+        (note.text ? '<p class="status' + (note.warn ? ' warn' : '') + '" style="margin-top:4px">' + esc(note.text) + '</p>' : '') +
+        (c.accounts || []).map(function(a){
+          var other = a.cur && a.cur !== 'EUR';
+          return '<div class="row' + (other ? ' off' : '') + '"><span class="grow"><b>' + esc(a.name || 'Account') + '</b>' +
+            '<span class="sub">' + (a.iban4 ? '•• ' + esc(a.iban4) : '') + (other ? ' · ' + esc(a.cur) + ', not counted' : '') + '</span></span>' +
+            '<span class="amt">' + (a.bal === null || a.bal === undefined ? '—' : other ? esc(a.bal + ' ' + a.cur) : esc(fmt(a.bal, true))) + '</span></div>';
+        }).join('') +
+        '<div class="acts">' + (note.warn ? '<button class="solid" data-connect="' + esc(c.bank) + '" data-country="' + esc(c.country) + '">Reconnect</button>' : '') +
+          '<button class="ghost" data-disconnect="' + esc(c.id) + '">Disconnect</button></div></div>';
+    });
+  } else {
+    html += '<p class="fig sm">Bank</p><p class="deck">Connect a bank to see its balance and payments here. ' +
+      'You log in at the bank itself; Runway can only read, never pay.</p>' + msg;
+  }
+  html += '<div class="card"><p class="eyebrow ink">' + (hasBank() ? 'Connect another bank' : 'Connect a bank') + '</p>' + bankPickerHtml() + '</div>';
+  html += '<div class="card"><button class="textbtn" data-pin="change">Change the PIN</button><br>' +
+    '<button class="textbtn" data-act="forget">Forget this phone</button>' +
+    '<p class="small" style="margin-top:8px">Account information only: balances and booked payments. Nothing in Runway can move money.</p></div>';
+  return html;
+}
+
+function bankPickerHtml(){
+  var countries = [['NL','Netherlands'],['LT','Lithuania'],['BE','Belgium'],['DE','Germany'],['FI','Finland']];
+  var sel = '<select id="bank-country" aria-label="Country of the bank">' + countries.map(function(c){
+    return '<option value="' + c[0] + '"' + (c[0] === bankCountry ? ' selected' : '') + '>' + c[1] + '</option>';
+  }).join('') + '</select>';
+  if (!BANKS_LIST) return sel + '<button class="enter" data-act="bank-list">Show banks</button>';
+  if (BANKS_LIST === 'loading') return sel + '<p class="small" style="padding:12px 0">Loading…</p>';
+  if (BANKS_LIST.error) return sel + '<p class="status warn">Could not load the banks: ' + esc(String(BANKS_LIST.error).replace(/_/g, ' ')) + '.</p>' +
+    '<button class="enter" data-act="bank-list">Try again</button>';
+  var q = normText(bankQuery).join(' ');
+  var list = BANKS_LIST.filter(function(b){ return !q || normText(b.name).join(' ').indexOf(q) > -1; });
+  return sel + '<label class="search"><span class="eyebrow">Find</span><input id="bank-q" type="search" autocomplete="off" placeholder="ABN AMRO, Revolut…" value="' + esc(bankQuery) + '"></label>' +
+    '<div id="bank-rows">' + bankRowsHtml(list) + '</div>';
+}
+function bankRowsHtml(list){
+  if (!list.length) return '<p class="small" style="padding:12px 0">No bank by that name here. Try another country.</p>';
+  return list.slice(0, 30).map(function(b){
+    return '<button class="row" data-connect="' + esc(b.name) + '" data-country="' + esc(b.country) + '"><span class="grow"><b>' + esc(b.name) + '</b>' +
+      (b.days ? '<span class="sub">Access for ' + b.days + ' days, then reconnect</span>' : '') + '</span><span class="chev">›</span></button>';
+  }).join('');
+}
+
+function paymentsHeadHtml(){
+  if (!hasBank()) return '<p class="deck">' + (bankKey ? 'No bank connected yet.' : 'Enter the PIN to see the payments.') + '</p>' +
+    '<button class="enter" ' + (bankKey ? 'data-go="bank"' : 'data-pin="unlock"') + ' style="margin-top:18px">' + (bankKey ? 'Connect a bank' : 'Enter the PIN') + '</button>';
+  var f = payFilter;
+  var chips = [['all','All']].concat(BUCKETS).concat([['in','Money in']]);
+  var html = '<h1 class="h1">Pay<i>ments</i></h1>' +
+    (f.m !== null && inRange(f.m) ? '<p class="status">' + esc(PLAN.months[f.m].label) + ' only · <button class="textbtn" data-act="all-months">every month</button></p>' : '') +
+    (bankMsg ? '<p class="msg">' + esc(bankMsg) + '</p>' : '') +
+    '<div class="filters" role="group" aria-label="Bucket">' + chips.map(function(c){
+      return '<button data-bf="' + c[0] + '" aria-pressed="' + (f.b === c[0]) + '">' + esc(c[1]) + '</button>';
+    }).join('') + '</div>';
+  if (BANK.conns.length > 1){
+    html += '<div class="filters" role="group" aria-label="Bank">' +
+      [['all','Every bank']].concat(BANK.conns.map(function(c){ return [c.id, bankShort(c.bank)]; })).map(function(c){
+        return '<button data-kf="' + esc(c[0]) + '" aria-pressed="' + (f.k === c[0]) + '">' + esc(c[1]) + '</button>';
+      }).join('') + '</div>';
+  }
+  html += '<label class="search"><span class="eyebrow">Find</span><input id="pay-q" type="search" autocomplete="off" placeholder="a payee" value="' + esc(f.q) + '"></label>';
+  return html;
+}
+
+function visiblePayments(){
+  var f = payFilter, q = normText(f.q).join(' ');
+  var conn = f.k === 'all' ? null : (BANK.conns || []).filter(function(c){ return c.id === f.k; })[0];
+  var keys = conn ? (conn.accounts || []).map(function(a){ return a.k; }) : null;
+  return classified().filter(function(c){
+    if (f.m !== null && !(monthIndexOf(c.t.d) === f.m && (f.m > 0 || c.t.d >= PLAN.asOf))) return false;
+    if (f.b !== 'all' && c.b !== f.b) return false;
+    if (keys && keys.indexOf(c.t.k) === -1) return false;
+    if (q && normText(c.t.who + ' ' + (c.t.desc || '')).join(' ').indexOf(q) === -1) return false;
+    return true;
+  });
+}
+
+function paymentRowsHtml(){
+  if (!hasBank()) return '';
+  var all = visiblePayments();
+  var shown = all.filter(function(c){ return payFilter.hidden || !c.hidden; });
+  var hidden = all.length - all.filter(function(c){ return !c.hidden; }).length;
+  $('p-count').textContent = shown.length + (shown.length === 1 ? ' payment' : ' payments');
+  if (!shown.length) return '<p class="deck" style="padding:18px 0">' + (all.length ? 'Only hidden payments here.' : 'Nothing here.') + '</p>' + hiddenLine(hidden);
+  var html = '', day = null, total = 0;
+  shown.forEach(function(c){ if (c.counts) total += c.out; });
+  if (payFilter.b !== 'all' && payFilter.b !== 'in') html += '<p class="small" style="padding-top:12px">' + esc(fmt(total, true)) + ' counted in these</p>';
+  shown.slice(0, 400).forEach(function(c){
+    if (c.t.d !== day){ day = c.t.d; html += '<p class="eyebrow dayhead">' + esc(dayLabel(day)) + '</p>'; }
+    html += paymentRowHtml(c);
+  });
+  if (shown.length > 400) html += '<p class="small" style="padding:12px 0">The newest 400 shown. Search or filter to find older ones.</p>';
+  return html + hiddenLine(hidden);
+}
+function hiddenLine(n){
+  if (!n) return '';
+  return '<button class="link" data-act="toggle-hidden"><span>' + (payFilter.hidden ? 'Hide the hidden again' : n + ' hidden') + '</span>' +
+    '<span class="n">' + (payFilter.hidden ? '' : 'show ›') + '</span></button>';
+}
+/* Who did what, for the other person to see: "moved by Ada", "flagged by Ada". */
+function byOther(x){ return x && x.by && x.by !== ME ? x.by : null; }
+function paymentSub(c){
+  var bits = [c.own ? 'Between your accounts' : c.b === 'in' ? 'Money in' : bucketLabel(c.b)];
+  var acct = accountOf(c.t.k);
+  if (acct && BANK.conns.length > 1) bits.push(bankShort(acct.bank));
+  if (!c.own && c.tag.ns) bits.push('not spending');
+  if (c.hidden) bits.push('hidden');
+  if (c.src === 'tag' && byOther(c.tag)) bits.push('moved by ' + c.tag.by);
+  else if (c.src === 'payee' && byOther(c.rule)) bits.push('always, set by ' + c.rule.by);
+  return bits.join(' · ');
+}
+function paymentRowHtml(c){
+  var t = c.t, credit = t.amt > 0;
+  return '<button class="row' + (c.counts ? '' : ' ns') + (c.hidden ? ' off' : '') + '" data-pay="' + esc(t.id) + '">' +
+    '<span class="grow"><span class="who">' + (isNew(c) ? '<span class="newdot" aria-label="new"></span>' : '') +
+      '<b>' + esc(t.who || t.desc || 'Payment') + '</b></span>' +
+      '<span class="sub">' + esc(paymentSub(c)) + '</span></span>' +
+    (c.flag ? '<span class="chip q">' + (byOther(c.tag) ? 'flagged by ' + esc(c.tag.by) : 'flagged') + '</span>' : '') +
+    '<span class="amt' + (credit ? ' good' : '') + '">' + (credit ? '+' : '') + esc(fmtAmt(Math.abs(t.amt))) + '</span></button>';
 }
 
 function spendRowsHtml(e){
@@ -1429,6 +2148,11 @@ function spendRowsHtml(e){
 
 function renderUndo(){
   var box = $('undo');
+  if (!undoItem && undoTag){
+    box.innerHTML = '<div class="float"><span class="undo-msg">' + esc(undoTag.msg) + '</span>' +
+      '<button class="undo" data-act="undo-tag">Undo</button></div>';
+    return;
+  }
   if (!undoItem){ box.innerHTML = ''; return; }
   box.innerHTML = '<div class="float"><span class="undo-msg">Deleted ' + esc(fmtAmt(undoItem.amt)) + ' ' +
     esc(undoItem.note || flexLabel(undoItem.cat).toLowerCase()) + '</span>' +
@@ -1448,8 +2172,37 @@ function renderFloat(cur, base){
 /* ─────────────────────────── events ─────────────────────────── */
 
 document.addEventListener('click', function(e){
+  var bk = e.target.closest('[data-pin],[data-pinkey],[data-pay],[data-move],[data-scope],[data-pays],[data-bf],[data-kf],[data-connect],[data-disconnect]');
+  if (bk){
+    e.preventDefault();
+    var d = bk.dataset;
+    if (d.pinkey) return pinKey(d.pinkey);
+    if (d.pin) return openPin(d.pin, d.pin === 'set' ? function(){ go('bank', true); } : null);
+    if (d.pay) return openPayment(d.pay);
+    if (d.move){ payDraft.b = d.move; return renderSheet(); }
+    if (d.scope) return movePayment(d.scope);
+    if (d.pays){
+      payFilter.b = d.pays; payFilter.q = ''; payFilter.hidden = false;
+      var from = page;
+      go('payments', true);
+      payFilter.m = d.month !== undefined ? Number(d.month) : (from === 'today' && d.pays !== 'all' ? monthIndexOf(todayStr()) : null);
+      return render();
+    }
+    if (d.bf){ payFilter.b = d.bf; return render(); }
+    if (d.kf){ payFilter.k = d.kf; return render(); }
+    if (d.connect) return connectBank(d.connect, d.country);
+    if (d.disconnect) return disconnectBank(d.disconnect);
+    return;
+  }
   var b = e.target.closest('[data-go],[data-sheet],[data-back],[data-open],[data-act],[data-cat],[data-day],[data-del],[data-key],[data-dir]');
   if (!b) return;
+  if (b.dataset.act === 'pin-go'){ e.preventDefault(); return pinSubmit(); }
+  if (b.dataset.act === 'undo-tag'){ e.preventDefault(); var u = undoTag; if (u) tagWrite(u.bodies, '', true); return; }
+  if (b.dataset.act === 'sync'){ e.preventDefault(); return syncNow(); }
+  if (b.dataset.act === 'forget'){ e.preventDefault(); return forgetPhone(); }
+  if (b.dataset.act === 'bank-list'){ e.preventDefault(); return loadBanks(); }
+  if (b.dataset.act === 'toggle-hidden'){ e.preventDefault(); payFilter.hidden = !payFilter.hidden; return render(); }
+  if (b.dataset.act === 'all-months'){ e.preventDefault(); payFilter.m = null; return render(); }
   if (b.dataset.key){ e.preventDefault(); return padKey(b.dataset.key); }
   if (b.dataset.dir){
     /* Spent and Received are different forms; redraw it and keep what was typed. */
@@ -1505,6 +2258,14 @@ function updateLogHint(){
   var err = $('lg-err');
   if (err) err.textContent = '';
 }
+/* On the whole document: a tap on the pad redraws the sheet, and focus falls back
+   to the page, so a listener on the sheet alone would miss the next key. */
+document.addEventListener('keydown', function(e){
+  if (sheetKind !== 'pin' || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (/^\d$/.test(e.key)){ e.preventDefault(); return pinKey(e.key); }
+  if (e.key === 'Backspace'){ e.preventDefault(); return pinKey('del'); }
+  if (e.key === 'Enter'){ e.preventDefault(); return pinSubmit(); }
+});
 $('sheet').addEventListener('keydown', function(e){
   if (sheetKind === 'log' && e.key === 'Enter' && (e.target.id === 'lg-amt' || e.target.id === 'lg-note')){
     e.preventDefault();
@@ -1531,8 +2292,29 @@ $('sheet').addEventListener('change', function(e){
 $('scrim').addEventListener('click', closeSheet);
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && sheetKind) closeSheet(); });
 
+document.addEventListener('input', function(e){
+  var el = e.target;
+  if (el.id === 'pay-q'){ payFilter.q = el.value; $('p-rows').innerHTML = paymentRowsHtml(); }
+  if (el.id === 'bank-q'){
+    bankQuery = el.value;
+    var q = normText(bankQuery).join(' ');
+    var box = $('bank-rows');
+    if (box && Array.isArray(BANKS_LIST)) box.innerHTML = bankRowsHtml(BANKS_LIST.filter(function(b){
+      return !q || normText(b.name).join(' ').indexOf(q) > -1;
+    }));
+  }
+});
+
 document.addEventListener('change', function(e){
   var el = e.target;
+  if (el.dataset && el.dataset.tog){
+    var c = classified().filter(function(x){ return x.t.id === payDraft.id; })[0];
+    if (!c) return;
+    var body = { id: c.t.id }; body[el.dataset.tog] = el.checked;
+    var words = { ns: ['Not spending', 'Counts as spending again'], hide: ['Hidden', 'Counted again'], flag: ['Flagged', 'Flag removed'] }[el.dataset.tog];
+    return tagWrite([body], (c.t.who || 'Payment') + ': ' + (el.checked ? words[0] : words[1]).toLowerCase());
+  }
+  if (el.id === 'bank-country'){ bankCountry = el.value; bankQuery = ''; return loadBanks(); }
   if (el.dataset && el.dataset.task){
     if (el.checked) S.tasks[el.dataset.task] = true; else delete S.tasks[el.dataset.task];
     push(); render(); return;
@@ -1572,6 +2354,25 @@ async function start(){
   store.set('runway-code', CODE);
   var ob = store.get(outboxKey());
   OUTBOX = Array.isArray(ob) ? ob : [];
+  bankKey = store.get(bankKeyName()) || null;
+  SEEN = store.get(seenName()) || null;
+  var bc = bankKey ? store.get(bankCacheName()) : null;
+  if (bc && bc.conns) BANK = bc;
+
+  /* Back from the bank's own login page: ?bank=ok|cancel|fail|expired. */
+  var back = qs.get('bank');
+  if (back){
+    bankMsg = {
+      ok: 'Connected. The first sync takes a few seconds.',
+      cancel: 'Connecting was cancelled at the bank.',
+      expired: 'That attempt took too long. Start again.',
+      fail: 'The bank did not connect. Try again.'
+    }[back] || '';
+    var u = new URL(location.href);
+    u.searchParams.delete('bank');
+    history.replaceState(null, '', u.pathname + u.search + '#bank');
+    if (back === 'ok') [3000, 9000].forEach(function(ms){ setTimeout(function(){ pullBank().then(function(ok){ if (ok) render(); }); }, ms); });
+  }
 
   var cached = store.get(cacheKey());
   if (cached && cached.plan){
@@ -1590,6 +2391,7 @@ async function start(){
   }
 
   if (OUTBOX.length) flush();
+  if (bankKey && (await pullBank())){ BANKREV = BANKINFO.rev; render(); }
   clearInterval(pollTimer);
   pollTimer = setInterval(poll, 8000);
 }
