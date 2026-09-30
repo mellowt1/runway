@@ -680,23 +680,76 @@ function flexTotal(st){
   return PLAN.flex.reduce(function(t,f){ return t + (Number(st[f.id])||0); }, 0);
 }
 
+/* The real starting point, once a bank is connected: everything in the bank today
+   (connected accounts and the ones entered by hand), in the month it is today. The
+   forecast then runs from here instead of the plan's snapshot. */
+function anchor(){
+  if (!hasBank()) return null;
+  var ci = monthIndexOf(todayStr()), bal = inTheBank();
+  if (!inRange(ci) || bal === null) return null;
+  return { ci: ci, bal: bal };
+}
+/* One-offs the plan takes off month i, the gemeente included when it lands there. */
+function plannedOneOffsOut(i, st){
+  var key = PLAN.months[i].key;
+  return (PLAN.oneOffs || []).filter(function(o){ return o.month === key && o.amount < 0; })
+    .reduce(function(t, o){ return t - o.amount; }, 0) + (i > 0 && st.gem === key ? PLAN.gemeente.amount : 0);
+}
+function extrasFor(m, st, items){
+  (PLAN.extras||[]).forEach(function(e){
+    var v = Number(st[e.id])||0;
+    if (!v) return;
+    if (m.key === e.from || afterKey(m.key, e.from)) items.push({ name:e.label, amount: e.sign * v });
+  });
+}
+/* What is still to come in the month the anchor sits in: the rest of the everyday
+   budget, and whatever part of the bills, debt payments and one-offs the bank has not
+   shown yet. The salary counts only until a payment that size has arrived. */
+function restOfMonth(i, st, subsT){
+  var items = [], m = PLAN.months[i], e = envelope(i, st), list = bankIn(i);
+  var everyday = cents(Math.max(0, e.budget - e.spent));
+  if (everyday) items.push({ name:'Everyday, rest of the month', amount: -everyday });
+  if (i > 0){
+    var bills = cents(Math.max(0, sum(PLAN.fixed) + subsT - bucketSum(list, 'bills')));
+    if (bills) items.push({ name:'Bills still to come', amount: -bills });
+    var debt = cents(Math.max(0, sum(PLAN.loans) - bucketSum(list, 'debt')));
+    if (debt) items.push({ name:'Debt payments still to come', amount: -debt });
+    if (m.key === PLAN.salary.from || afterKey(m.key, PLAN.salary.from)){
+      var sal = Number(st.salary) || 0;
+      var arrived = list.some(function(c){ return c.t.amt >= sal * 0.7; });
+      if (sal && !arrived) items.push({ name:'Salary', amount: sal });
+    }
+    extrasFor(m, st, items);
+  }
+  (PLAN.oneOffs || []).forEach(function(o){ if (o.month === m.key && o.amount > 0) items.push({ name:o.name, amount:o.amount }); });
+  var off = cents(Math.max(0, plannedOneOffsOut(i, st) - oneOffsIn(i)));
+  if (off) items.push({ name:'One-offs still to come', amount: -off });
+  return items;
+}
+
 function model(st){
   var subsT = sum(keptSubs(st));
   var monthly = sum(PLAN.fixed) + sum(PLAN.loans) + subsT + flexTotal(st);
-  var bal = PLAN.start, M = [];
-  var first = PLAN.months[0].key;
+  var A = anchor();
+  var bal = A ? A.bal : PLAN.start, M = [];
+  var first = PLAN.months[A ? A.ci : 0].key;
 
   PLAN.months.forEach(function(m, i){
+    if (A && i < A.ci) return;
     var items = [];
+    if (A && i === A.ci){
+      items = restOfMonth(i, st, subsT);
+      items.forEach(function(it){ bal += it.amount; });
+      M.push({ key:m.key, label:m.label, items:items, bal:bal });
+      return;
+    }
     if (i === 0){
       var e0 = envelope(0, st);
       var spentNow = (Number(st.sept) || 0) + e0.logged + e0.bank;
       if (spentNow) items.push({ name:'Spending', amount: -spentNow });
     }
     /* Bank one-offs beyond the ones the plan already takes off this month. */
-    var planned = (PLAN.oneOffs || []).filter(function(o){ return o.month === m.key && o.amount < 0; })
-      .reduce(function(t, o){ return t - o.amount; }, 0) + (i > 0 && st.gem === m.key ? PLAN.gemeente.amount : 0);
-    var off = cents(Math.max(0, oneOffsIn(i) - planned));
+    var off = cents(Math.max(0, oneOffsIn(i) - plannedOneOffsOut(i, st)));
     if (off) items.push({ name:'One-offs', amount: -off });
     var cameIn = envelope(i, st).income;
     if (cameIn) items.push({ name:'Money in', amount: cameIn });
@@ -711,13 +764,7 @@ function model(st){
         if (o.month === m.key) items.push({ name:o.name, amount:o.amount });
       });
       if (st.gem === m.key) items.push({ name:'Gemeente', amount: -PLAN.gemeente.amount });
-      (PLAN.extras||[]).forEach(function(e){
-        var v = Number(st[e.id])||0;
-        if (!v) return;
-        if (m.key === e.from || afterKey(m.key, e.from)) {
-          items.push({ name:e.label, amount: e.sign * v });
-        }
-      });
+      extrasFor(m, st, items);
     }
     items.forEach(function(it){ bal += it.amount; });
     M.push({ key:m.key, label:m.label, items:items, bal:bal });
@@ -1755,8 +1802,10 @@ function render(){
   }).join('');
 
   /* Forecast */
-  $('f-hero').innerHTML = '<p class="deck">What the account holds at the end of each month, ' +
-      (changed() ? 'with the changes made.' : 'on the plan.') + '</p>' +
+  var A = anchor();
+  $('f-hero').innerHTML = '<p class="deck">What ' + (A ? 'the money' : 'the account') + ' holds at the end of each month, ' +
+      (A ? 'starting from the <b>' + esc(fmt(A.bal)) + '</b> in the bank today' + (manualAccounts().length ? ', savings included' : '') +
+        (changed() ? ', with the changes made.' : '.') : (changed() ? 'with the changes made.' : 'on the plan.')) + '</p>' +
     '<div class="stats"><div><span class="v">' + esc(fmt(cur.end)) + '</span><span class="k">end of ' + esc(lastLabel) + '</span></div>' +
       '<div><span class="v">' + esc(fmt(cur.monthly)) + '</span><span class="k">a normal month</span></div></div>';
 
