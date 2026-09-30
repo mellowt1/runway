@@ -5,32 +5,21 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Runway</title>
 <meta name="description" content="What is left, what is coming, and what to do next.">
-<meta name="theme-color" content="#F6F3EC" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#151411" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#021006">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap">
 <style>
-/* The Ledger: warm paper, ink, printed rules. Figures are set in the serif;
-   everything that labels a figure is the small sans. No cards: sections are
-   separated by rules, the way a printed page is. */
+/* MU-TH-UR 6000: phosphor on a CRT, always dark. The ledger's rules below
+   still set the layout; the MU-TH-UR block at the end of this sheet re-sets
+   type and surfaces. "--serif" is the terminal face (VT323) for figures and
+   words, "--sans" the small mono that labels them. Alert is amber, never red. */
 :root{
-  --ground:#F6F3EC; --ink:#151412; --ink-2:#4A463F; --muted:#6B665D; --rule:#DCD6CA;
-  --press:#ECE7DC; --green:#1E5C47; --over:#B5401A; --on-ink:#F6F3EC;
-  --serif:"Instrument Serif",Georgia,"Times New Roman",serif;
-  --sans:"Instrument Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  color-scheme:light;
-}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --ground:#151411; --ink:#EDE8DD; --ink-2:#C4BEB2; --muted:#9A9489; --rule:#34312B;
-    --press:#221F1B; --green:#86C9AC; --over:#F0906A; --on-ink:#151411;
-    color-scheme:dark;
-  }
-}
-:root[data-theme="dark"]{
-  --ground:#151411; --ink:#EDE8DD; --ink-2:#C4BEB2; --muted:#9A9489; --rule:#34312B;
-  --press:#221F1B; --green:#86C9AC; --over:#F0906A; --on-ink:#151411;
+  --ground:#021006; --ink:#7dff7a; --ink-2:#6be068; --muted:#4fae4d; --rule:#16461c;
+  --press:#0a2a10; --green:#d8ffd2; --over:#ffb347; --on-ink:#021006;
+  --glow:rgba(125,255,122,.45);
+  --serif:"VT323",ui-monospace,Menlo,monospace;
+  --sans:"Share Tech Mono",ui-monospace,Menlo,monospace;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -346,6 +335,156 @@ details p{font:400 17px/1.4 var(--serif);color:var(--ink-2);margin-top:4px}
   padding:12px;width:100%;margin-top:26px}
 .boot .solid{background:var(--ink);color:var(--on-ink);border-radius:28px;
   min-height:54px;font-size:15px;font-weight:500;width:100%;margin-top:16px}
+
+/* ───────────── MU-TH-UR 6000 ─────────────
+   Everything below re-sets the ledger for the terminal: VT323 sizes run
+   larger than the serif's did, nothing is italic (a selection is inverse
+   video instead), corners are square, and what you press is a beige key. */
+body{text-shadow:0 0 6px var(--glow);letter-spacing:.02em}
+body::after{content:"";position:fixed;inset:0;z-index:70;pointer-events:none;
+  background:repeating-linear-gradient(to bottom,transparent 0 2px,rgba(0,0,0,.28) 3px,transparent 4px);
+  box-shadow:inset 0 0 120px rgba(0,0,0,.8)}
+:focus-visible{outline:3px solid #6fd3ff;border-radius:0}
+@media (prefers-reduced-motion:no-preference){
+  body::after{animation:flick 6s infinite}
+  @keyframes flick{0%,47%,53%,100%{opacity:1}50%{opacity:.7}}
+  #t-hero .fig-xl::after{animation:blink 1s steps(2,start) infinite}
+  @keyframes blink{to{visibility:hidden}}
+}
+
+.eyebrow{font:400 11px/1.3 var(--sans);letter-spacing:.18em}
+.dateline{font:400 20px/1.2 var(--serif);text-transform:uppercase}
+.lbl,.small,.status,.lg-hint,.err{font-family:var(--sans)}
+.mast .word{font:400 12px var(--sans);letter-spacing:.12em}
+.mast .word::before{content:"MU-TH-UR 6000 · "}
+.pill{border-radius:0;border:2px solid var(--ink);font:400 12px var(--sans);letter-spacing:.14em;text-transform:uppercase}
+.pill::before{content:"[\00a0"}
+.pill::after{content:"\00a0]"}
+.pill.solid{background:transparent;color:var(--ink)}
+.pill:hover{background:var(--press)}
+.back{font:400 23px var(--serif);text-transform:uppercase}
+.h1{font:400 58px/.9 var(--serif);letter-spacing:0;text-transform:uppercase}
+.h1::before{content:"> "}
+.h1 i{font-style:normal}
+
+.card{border-top:2px dashed var(--rule)}
+.stats{border-top:2px dashed var(--rule)}
+.fig{font:400 76px/.9 var(--serif);letter-spacing:0}
+.fig.sm{font-size:64px}
+.fig-xl{font:400 100px/.9 var(--serif);letter-spacing:0;white-space:nowrap;overflow-wrap:normal}
+.fig-xl.long{font-size:80px}
+#t-hero .fig-xl::after{content:"";display:inline-block;width:.28em;height:.62em;margin-left:.06em;background:currentColor}
+.deck{font:400 26px/1.1 var(--serif)}
+.stats .v{font:400 40px/1 var(--serif)}
+.row b{font:400 25px/1.05 var(--serif)}
+.row .amt{font:400 24px var(--serif)}
+.chev{font:400 24px var(--serif);color:var(--ink)}
+button.row:hover{background:var(--press)}
+button.row:hover b{font-style:normal}
+.lg-r{font:400 24px var(--serif)}
+.lg-r span:first-child{font-size:24px}
+.lg-r.total span:first-child{font-style:normal}
+.link{font:400 24px var(--serif);text-transform:uppercase}
+.split i{box-shadow:0 0 6px var(--glow)}
+
+/* the forecast: months below zero are bridged, so dim and hatched, not alarmed */
+.fc-r .m,.fc-r .v{font:400 22px var(--serif)}
+.fc-r.neg .m,.fc-r.neg .v{color:var(--muted);font-style:normal}
+.fc-r.neg .track i{background:repeating-linear-gradient(45deg,var(--muted) 0 3px,transparent 3px 6px)}
+.notes p{font:400 23px/1.1 var(--serif)}
+
+.live button{font:400 21px var(--serif);text-transform:uppercase}
+.chip{border:0;border-radius:0;background:var(--over);color:var(--on-ink);text-shadow:none;
+  font:400 12px var(--sans);letter-spacing:.1em;text-transform:uppercase}
+.chip.q{background:transparent;border:1px solid var(--muted);color:var(--muted)}
+.cb{border-radius:0;border-width:2px}
+.sw,.sw::after{border-radius:0}
+.sw::after{background:var(--muted);box-shadow:none}
+.sw:checked::after{background:var(--on-ink)}
+
+/* tabs: a beige key deck, the current key pressed with its lamp lit */
+.tabs{background:#d8d3c4;border-top:3px solid #b3ad9c;box-shadow:inset 0 2px 0 #f2eee3;text-shadow:none;
+  padding:12px 16px calc(14px + env(safe-area-inset-bottom,0px))}
+.tabs[hidden]{display:none}
+.tabs .inner{border-top:0;padding-top:0;gap:12px;max-width:398px}
+.tabs button,.tabs button:first-child,.tabs button:last-child{flex:1;min-width:0;min-height:56px;text-align:center;
+  border-radius:7px;background:#e8e3d4;color:#1c1c1a;font:400 12px var(--sans);letter-spacing:.16em;text-transform:uppercase;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  box-shadow:0 4px 0 #9d978a,inset 0 2px 0 #fbf8ef}
+.tabs em{display:block;order:-1;width:6px;height:6px;border-radius:50%;background:#8a8577}
+.tabs button[aria-current="page"]{color:#1c1c1a;font-style:normal;transform:translateY(3px);
+  box-shadow:0 1px 0 #9d978a,inset 0 2px 0 #fbf8ef}
+.tabs button[aria-current="page"] em{background:#3fd23c;box-shadow:0 0 6px #7dff7a}
+
+.float{bottom:calc(100px + env(safe-area-inset-bottom,0px));background:#021006;color:var(--ink);
+  border:2px solid var(--ink);border-radius:0;box-shadow:0 0 22px rgba(125,255,122,.22)}
+.float .was{font:400 18px var(--serif)}
+.float .now{font:400 26px var(--serif)}
+.float .undo-msg{font:400 22px var(--serif)}
+.float button{background:var(--ink);color:var(--on-ink);border-radius:0;text-shadow:none;
+  font:400 12px var(--sans);letter-spacing:.14em;text-transform:uppercase}
+
+.scrim{background:rgba(0,0,0,.6)}
+.sheet{background:#031409;border-top:2px solid var(--ink);border-radius:0;box-shadow:0 -10px 40px rgba(125,255,122,.12)}
+.grab{background:var(--muted);border-radius:0}
+.sheet h2{font:400 40px/1 var(--serif);text-transform:uppercase}
+.stop label{font:400 24px var(--serif)}
+.stop output{font:400 26px var(--serif)}
+input[type=range]::-webkit-slider-thumb{border-radius:0}
+input[type=range]::-moz-range-thumb{border-radius:0}
+.result{border-top:2px dashed var(--rule);border-bottom:2px dashed var(--rule)}
+.result .was{font:400 19px var(--serif)}
+.result .now{font:400 26px var(--serif)}
+.acts button{border-radius:0;font:400 12px var(--sans);letter-spacing:.14em;text-transform:uppercase}
+.acts .ghost{border:2px solid var(--ink)}
+.acts .solid{text-shadow:none}
+select{font:400 22px var(--serif)}
+.plist li{font:400 22px/1.15 var(--serif)}
+details summary{font:400 20px var(--serif);text-transform:uppercase}
+details p{font:400 21px/1.2 var(--serif)}
+.quote{font:400 30px/1.1 var(--serif);text-transform:uppercase}
+.del{font:400 30px var(--serif)}
+
+/* the log sheet: the figure on the screen, the number pad as keys */
+.lg-head .cancel{font-family:var(--sans);text-transform:uppercase;letter-spacing:.1em}
+.lg-head .date{font:400 20px var(--serif);text-transform:uppercase}
+.lg-head h2{font:400 12px var(--sans)}
+.lg-amt{border-bottom:2px dashed var(--rule)}
+.lg-amt input{font:400 104px/1 var(--serif);letter-spacing:0;text-shadow:0 0 8px var(--glow)}
+.tabsel button{font:400 24px var(--serif);text-transform:uppercase}
+.tabsel.two button{font-size:21px}
+.tabsel button[aria-pressed="true"],.filters button[aria-pressed="true"]{background:var(--ink);color:var(--on-ink);
+  font-style:normal;text-decoration:none;text-shadow:none}
+.memo{border-top:2px dashed var(--rule);border-bottom:2px dashed var(--rule)}
+.memo input{font:400 23px var(--serif)}
+.pad{border:0;gap:10px;padding:12px 0}
+.pad button,.pad button:nth-child(-n+3),.pad button:not(:nth-child(3n+1)){border:0;border-radius:7px;
+  background:#e8e3d4;color:#1c1c1a;text-shadow:none;font:400 24px var(--sans);
+  box-shadow:0 4px 0 #9d978a,inset 0 2px 0 #fbf8ef}
+.pad button:active{background:#e8e3d4;transform:translateY(3px);box-shadow:0 1px 0 #9d978a,inset 0 2px 0 #fbf8ef}
+.enter{border-radius:8px;background:#1c1c1a;color:var(--ink);border:2px solid var(--ink);
+  font:400 14px var(--sans);letter-spacing:.3em;text-transform:uppercase}
+
+/* the bank */
+.filters{border-bottom:2px dashed var(--rule)}
+.filters button{font:400 21px var(--serif);text-transform:uppercase;padding:0 6px}
+.search{border-bottom:2px dashed var(--rule)}
+.search input{font:400 22px var(--serif)}
+.dayhead{border-bottom:2px dashed var(--rule)}
+.bk .top b{font:400 25px/1.05 var(--serif)}
+.bk .top .amt{font:400 24px var(--serif)}
+.pay-amt{font:400 76px/1 var(--serif);letter-spacing:0}
+.pay-desc{font:400 21px/1.2 var(--serif)}
+.scope button{border-radius:0;border:2px solid var(--ink);font:400 12px var(--sans);letter-spacing:.12em;text-transform:uppercase}
+.pindots i{border-radius:0;border-width:2px}
+.textbtn{font:400 21px var(--serif);text-transform:uppercase}
+.msg{font:400 23px/1.15 var(--serif);border-top:2px dashed var(--rule)}
+
+.boot h1{font:400 76px/1 var(--serif);text-transform:uppercase}
+.boot h1::before{content:"MU-TH-UR 6000";display:block;font:400 13px var(--sans);letter-spacing:.2em;margin-bottom:10px}
+.boot p{font:400 24px/1.15 var(--serif)}
+.boot input{font:400 30px var(--serif)}
+.boot .solid{border-radius:0;text-shadow:none;font:400 13px var(--sans);letter-spacing:.2em;text-transform:uppercase}
 </style>
 </head>
 <body>
