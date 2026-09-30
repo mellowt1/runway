@@ -693,7 +693,10 @@ function model(st){
       var spentNow = (Number(st.sept) || 0) + e0.logged + e0.bank;
       if (spentNow) items.push({ name:'Spending', amount: -spentNow });
     }
-    var off = oneOffsIn(i);
+    /* Bank one-offs beyond the ones the plan already takes off this month. */
+    var planned = (PLAN.oneOffs || []).filter(function(o){ return o.month === m.key && o.amount < 0; })
+      .reduce(function(t, o){ return t - o.amount; }, 0) + (i > 0 && st.gem === m.key ? PLAN.gemeente.amount : 0);
+    var off = cents(Math.max(0, oneOffsIn(i) - planned));
     if (off) items.push({ name:'One-offs', amount: -off });
     var cameIn = envelope(i, st).income;
     if (cameIn) items.push({ name:'Money in', amount: cameIn });
@@ -913,6 +916,8 @@ var CL = null;                                 // classified payments, rebuilt w
 var BUCKETS = [['everyday','Everyday'],['bills','Bills'],['debt','Debt payments'],['oneoff','One-offs']];
 function bucketLabel(b){
   if (b === 'in') return 'Money in';
+  if (b === 'save') return 'To savings';
+  if (b === 'check') return 'To sort';
   var x = BUCKETS.filter(function(p){ return p[0] === b; })[0];
   return x ? x[1] : b;
 }
@@ -999,21 +1004,35 @@ function matchers(){
   return list;
 }
 
+/* Money put aside is not spending: an ABN spaarrekening, Direct Sparen, a Revolut
+   vault or pocket. Matched on the payee and the description, whole words. */
+var SAVINGS = /(^| )(spaar[a-z]*|sparen|direct sparen|savings?|vaults?|pockets?|deposito|vermogen[a-z]*)( |$)/;
+/* A payment this big that nothing recognises is not everyday spending until someone
+   says so: it waits in To sort and counts nowhere. */
+function bigAmount(){ return (PLAN.bank && PLAN.bank.big) || 500; }
+
 function classify(t){
   var tg = tags(), tag = tg.pay[t.id] || {}, rule = tg.payee[payeeKey(payeeOf(t))] || null;
   var c = { t:t, tag:tag, rule:rule, hidden: !!tag.hide, ns: !!(tag.ns || t.own), own: !!t.own, flag: !!tag.flag };
   if (tag.b){ c.b = tag.b; c.src = 'tag'; }
   else if (rule){ c.b = rule.b; c.src = 'payee'; }
-  else if (t.amt > 0){ c.b = 'in'; c.src = 'auto'; }
   else {
-    var hay = ' ' + normText(t.who + ' ' + (t.desc || '')).join(' ') + ' ';
-    var m = matchers().filter(function(x){
-      return x.terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; });
-    })[0];
-    c.b = m ? m.b : 'everyday'; c.src = m ? 'plan' : 'auto';
+    var words = normText(t.who + ' ' + (t.desc || '')).join(' ');
+    var hay = ' ' + words + ' ';
+    if (SAVINGS.test(words)){ c.b = 'save'; c.src = 'auto'; c.ns = true; }
+    else if (t.amt > 0){ c.b = 'in'; c.src = 'auto'; }
+    else {
+      var m = matchers().filter(function(x){
+        return x.terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; });
+      })[0];
+      if (m){ c.b = m.b; c.src = 'plan'; }
+      else if (-t.amt >= bigAmount()){ c.b = 'check'; c.src = 'auto'; }
+      else { c.b = 'everyday'; c.src = 'auto'; }
+    }
   }
-  /* What it takes from a bucket: a debit adds, a credit moved into a bucket is a refund. */
-  c.counts = !c.hidden && !c.ns && c.b !== 'in';
+  /* What it takes from a bucket: a debit adds, a credit moved into a bucket is a refund.
+     Money in, savings and big payments still to sort count nowhere. */
+  c.counts = !c.hidden && !c.ns && c.b !== 'in' && c.b !== 'save' && c.b !== 'check';
   c.out = -t.amt;
   return c;
 }
@@ -1462,6 +1481,8 @@ function renderSheet(){
       var pick = payDraft.b;
       var choices = BUCKETS.concat(credit ? [['in','Money in']] : []);
       var whyNow = c.own ? 'Money between your own connected accounts: never counted.'
+        : c.b === 'save' && c.src === 'auto' ? 'Looks like money put into savings: never counted. Pick a bucket if it was spending.'
+        : c.b === 'check' ? 'Big, and nothing recognised it, so it counts nowhere until you pick where it goes.'
         : c.src === 'tag' ? (byOther(c.tag) ? 'Moved here by ' + c.tag.by + '.' : 'Moved here by hand.')
         : c.src === 'payee' ? 'Every payment to this payee goes here' + (byOther(c.rule) ? ', set by ' + c.rule.by : '') + '.'
         : c.src === 'plan' ? 'Matched to the plan.'
@@ -1957,12 +1978,14 @@ function todayBankHtml(env){
     var names = BANK.conns.map(function(c){ return bankShort(c.bank); }).join(' + ');
     var warn = BANK.conns.some(function(c){ return consentNote(c).warn; });
     var fresh = classified().filter(isNew).length;
+    var toSort = classified().filter(function(c){ return c.b === 'check' && !c.hidden; }).length;
     var monthN = env ? bankIn(env.index).filter(function(c){ return !c.hidden; }).length : 0;
     return '<button class="row" data-go="bank" style="padding-top:0"><span class="grow"><b>In the bank</b>' +
         '<span class="sub">' + esc(names + ' · ' + (warn ? 'needs attention' : when)) + '</span></span>' +
         '<span class="amt">' + (total === null ? '—' : esc(fmt(total))) + '</span><span class="chev">›</span></button>' +
-      '<button class="row" data-pays="all"><span class="grow"><b>Payments</b>' +
-        '<span class="sub">' + esc(fresh ? fresh + ' new since you last looked' : (env ? monthN + ' in ' + env.label : 'from the bank')) + '</span></span>' +
+      '<button class="row" data-pays="' + (toSort ? 'check' : 'all') + '"><span class="grow"><b>Payments</b>' +
+        '<span class="sub">' + esc(toSort ? toSort + (toSort === 1 ? ' big payment' : ' big payments') + ' to sort'
+          : fresh ? fresh + ' new since you last looked' : (env ? monthN + ' in ' + env.label : 'from the bank')) + '</span></span>' +
         (fresh ? '<span class="newdot"></span>' : '') + '<span class="chev">›</span></button>';
   }
   var planRow = '<div class="row" style="padding-top:0"><span class="grow"><b>In the bank</b>' +
@@ -1997,7 +2020,14 @@ function monthBucketsHtml(ci){
           (r[3] ? ' · ' + r[3] : '') + '</span>' +
         '<span class="track" style="display:block"><i style="width:' + w.toFixed(1) + '%"></i>' +
           (r[1] ? '<u style="left:' + Math.min(100, mark).toFixed(1) + '%"></u>' : '') + '</span></button>';
-    }).join('') + '</div>';
+    }).join('') + '</div>' + sortLine(list);
+}
+function sortLine(list){
+  var w = list.filter(function(c){ return c.b === 'check' && !c.hidden; });
+  if (!w.length) return '';
+  var s = cents(w.reduce(function(t, c){ return t + c.out; }, 0));
+  return '<button class="link" data-pays="check" style="margin:-14px 0 26px"><span>' + esc(fmt(s)) + ' in big payments, not counted until sorted</span>' +
+    '<span class="n">' + w.length + ' ›</span></button>';
 }
 
 function bankScreenHtml(){
@@ -2070,7 +2100,9 @@ function paymentsHeadHtml(){
   if (!hasBank()) return '<p class="deck">' + (bankKey ? 'No bank connected yet.' : 'Enter the PIN to see the payments.') + '</p>' +
     '<button class="enter" ' + (bankKey ? 'data-go="bank"' : 'data-pin="unlock"') + ' style="margin-top:18px">' + (bankKey ? 'Connect a bank' : 'Enter the PIN') + '</button>';
   var f = payFilter;
-  var chips = [['all','All']].concat(BUCKETS).concat([['in','Money in']]);
+  var chips = [['all','All']];
+  if (classified().some(function(c){ return c.b === 'check' && !c.hidden; })) chips.push(['check','To sort']);
+  chips = chips.concat(BUCKETS).concat([['save','To savings'],['in','Money in']]);
   var html = '<h1 class="h1">Pay<i>ments</i></h1>' +
     (f.m !== null && inRange(f.m) ? '<p class="status">' + esc(PLAN.months[f.m].label) + ' only · <button class="textbtn" data-act="all-months">every month</button></p>' : '') +
     (bankMsg ? '<p class="msg">' + esc(bankMsg) + '</p>' : '') +
@@ -2125,7 +2157,7 @@ function hiddenLine(n){
 /* Who did what, for the other person to see: "moved by Ada", "flagged by Ada". */
 function byOther(x){ return x && x.by && x.by !== ME ? x.by : null; }
 function paymentSub(c){
-  var bits = [c.own ? 'Between your accounts' : c.b === 'in' ? 'Money in' : bucketLabel(c.b)];
+  var bits = [c.own ? 'Between your accounts' : bucketLabel(c.b)];
   var acct = accountOf(c.t.k);
   if (acct && BANK.conns.length > 1) bits.push(bankShort(acct.bank));
   if (!c.own && c.tag.ns) bits.push('not spending');
