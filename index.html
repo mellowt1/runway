@@ -1040,8 +1040,18 @@ function accountOf(k){
   return out;
 }
 function bankShort(name){ return String(name || '').replace(/\s+(Bank|N\.?V\.?|UAB)$/i, ''); }
+/* Accounts the bank sync cannot see, entered by hand in the plan (bank.manual). */
+function manualAccounts(){ return (PLAN && PLAN.bank && PLAN.bank.manual) || []; }
+function manualRowsHtml(){
+  return manualAccounts().map(function(m){
+    return '<div class="row"><span class="grow"><b>' + esc(m.name) + '</b><span class="sub">' +
+      esc((m.bank ? m.bank + ' · ' : '') + 'entered by hand' + (m.asOf ? ', ' + shortDate(m.asOf) : '')) + '</span></span>' +
+      '<span class="amt">' + esc(fmt(m.bal)) + '</span></div>';
+  }).join('');
+}
 function inTheBank(){
   var sum = 0, n = 0;
+  manualAccounts().forEach(function(m){ if (Number.isFinite(Number(m.bal))){ sum += Number(m.bal); n++; } });
   ((BANK && BANK.conns) || []).forEach(function(c){
     (c.accounts || []).forEach(function(a){
       if (a.bal !== null && a.bal !== undefined && (!a.cur || a.cur === 'EUR')){ sum += a.bal; n++; }
@@ -1957,7 +1967,7 @@ function todayBankHtml(env){
   }
   var planRow = '<div class="row" style="padding-top:0"><span class="grow"><b>In the bank</b>' +
     '<span class="sub">As of ' + esc(shortDate(PLAN.asOf)) + '</span></span>' +
-    '<span class="amt">' + esc(fmt(PLAN.start)) + '</span></div>';
+    '<span class="amt">' + esc(fmt(PLAN.start)) + '</span></div>' + manualRowsHtml();
   if (BANKINFO.conns && !bankKey){
     return planRow + '<button class="row" data-pin="unlock"><span class="grow"><b>The bank is connected</b>' +
       '<span class="sub">Enter the PIN to see it on this phone</span></span><span class="chev">›</span></button>';
@@ -2025,6 +2035,7 @@ function bankScreenHtml(){
     html += '<p class="fig sm">Bank</p><p class="deck">Connect a bank to see its balance and payments here. ' +
       'You log in at the bank itself; Runway can only read, never pay.</p>' + msg;
   }
+  if (manualAccounts().length) html += '<div class="card tight"><p class="eyebrow ink" style="padding-top:14px">Entered by hand</p>' + manualRowsHtml() + '</div>';
   html += '<div class="card"><p class="eyebrow ink">' + (hasBank() ? 'Connect another bank' : 'Connect a bank') + '</p>' + bankPickerHtml() + '</div>';
   html += '<div class="card"><button class="textbtn" data-pin="change">Change the PIN</button><br>' +
     '<button class="textbtn" data-act="forget">Forget this phone</button>' +

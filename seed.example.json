@@ -27,7 +27,8 @@
 
   "bank": {
     "_comment": "Optional. Rules put bank payments in a bucket (everyday, bills, debt, oneoff) before the plan's own payee hints. A person's choice in the app beats both.",
-    "rules": [{ "match": "Some Shop", "b": "oneoff" }]
+    "rules": [{ "match": "Some Shop", "b": "oneoff" }],
+    "manual": [{ "id": "save", "name": "Savings", "bank": "A Bank", "bal": 1000, "asOf": "2026-01-31", "_comment": "an account the sync cannot see; counts in In the bank" }]
   },
 
   "flex": [
