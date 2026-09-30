@@ -96,7 +96,9 @@ export async function ebRequest(env, path, { method = 'GET', body, query, psu } 
   }
   let jwt;
   try {
-    jwt = await buildJwt(env.EB_APP_ID, await signingKey(env));
+    // Trimmed: a secret piped in from a shell can arrive with a trailing newline,
+    // and a kid with a line break on the end is refused as unauthorized.
+    jwt = await buildJwt(String(env.EB_APP_ID).trim(), await signingKey(env));
   } catch (e) {
     return { ok: false, kind: 'unconfigured', detail: `EB_PRIVATE_KEY did not load: ${e.message}` };
   }

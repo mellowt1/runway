@@ -1188,7 +1188,7 @@ async function loadBanks(){
   render();
   var r = null;
   try { r = await bankFetch('/api/bank/' + CODE + '/banks?country=' + bankCountry); } catch(e){}
-  BANKS_LIST = r && r.ok ? r.data.banks : { error: (r && r.data && r.data.error) || 'unreachable' };
+  BANKS_LIST = r && r.ok ? r.data.banks : { error: (r && r.data && r.data.error) || 'unreachable', detail: (r && r.data && r.data.detail) || '' };
   render();
 }
 async function connectBank(name, country){
@@ -2039,7 +2039,8 @@ function bankPickerHtml(){
   }).join('') + '</select>';
   if (!BANKS_LIST) return sel + '<button class="enter" data-act="bank-list">Show banks</button>';
   if (BANKS_LIST === 'loading') return sel + '<p class="small" style="padding:12px 0">Loading…</p>';
-  if (BANKS_LIST.error) return sel + '<p class="status warn">Could not load the banks: ' + esc(String(BANKS_LIST.error).replace(/_/g, ' ')) + '.</p>' +
+  if (BANKS_LIST.error) return sel + '<p class="status warn">Could not load the banks: ' + esc(String(BANKS_LIST.error).replace(/_/g, ' ')) + '.' +
+    (BANKS_LIST.detail ? ' <span class="quiet">' + esc(String(BANKS_LIST.detail).slice(0, 160)) + '</span>' : '') + '</p>' +
     '<button class="enter" data-act="bank-list">Try again</button>';
   var q = normText(bankQuery).join(' ');
   var list = BANKS_LIST.filter(function(b){ return !q || normText(b.name).join(' ').indexOf(q) > -1; });
