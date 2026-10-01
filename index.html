@@ -757,15 +757,29 @@ function envelope(i, st){
   });
   /* Everyday payments from the bank count against the same envelope as cash. They
      go into the daily chart as entries of their own, never into the cash list. */
-  var bankDays = [], bank = 0, outside = 0;
+  var bankDays = [], bank = 0, outside = 0, atm = [];
   bankIn(i).forEach(function(c){
     if (!c.counts || c.b !== 'everyday') return;
+    if (c.atm){ atm.push(c); return; }
     bank += c.out;
     if (c.pocket && byId[c.pocket]){ byId[c.pocket].spent += c.out; byId[c.pocket].card = (byId[c.pocket].card || 0) + c.out; }
     else outside += c.out;
     bankDays.push({ d: c.t.d, amt: c.out });
     if (c.t.d === today) todaySpent += c.out;
   });
+  /* Cash from a machine is spent twice over if it counts here and again when it is
+     entered. Entered cash draws on the month's withdrawals first; only cash taken out
+     and not entered (yet) counts as spending from the bank. */
+  var cashOut = cents(atm.reduce(function(t, c){ return t + c.out; }, 0));
+  var unentered = cents(Math.max(0, cashOut - logged));
+  if (unentered){
+    var last = atm.reduce(function(a, c){ return c.t.d > a.t.d ? c : a; });
+    bank += unentered;
+    if (last.pocket && byId[last.pocket]){ byId[last.pocket].spent += unentered; byId[last.pocket].card = (byId[last.pocket].card || 0) + unentered; }
+    else outside += unentered;
+    bankDays.push({ d: last.t.d, amt: unentered });
+    if (last.t.d === today) todaySpent += unentered;
+  }
   bank = cents(bank);
   /* With a pocket linked, what is left of a budget is simply what the pocket holds. */
   var pockets = 0, pocketLeft = 0;
@@ -788,6 +802,7 @@ function envelope(i, st){
     index:i, label: PLAN.months[i] ? PLAN.months[i].label : '', first:b.first, last:b.last,
     budget:budget, income:income, total:total, spent:spent, logged:cents(logged), legacy:legacy, other:cents(other),
     bank:bank, outside:cents(outside), pockets:pockets, pocketLeft:cents(pocketLeft), left:left, daysLeft:daysLeft, perDay: left > 0 && daysLeft > 0 ? left / daysLeft : null,
+    cashOut:cashOut, unentered:unentered,
     todaySpent:cents(todaySpent), count:all.length, cats:cats, list:list.concat(bankDays), entries:all
   };
 }
@@ -862,22 +877,52 @@ function restOfMonth(i, st, subsT){
   var items = [], m = PLAN.months[i], e = envelope(i, st), list = bankIn(i);
   var everyday = cents(Math.max(0, e.budget - e.spent));
   if (everyday) items.push({ name:'Everyday, rest of the month', amount: -everyday });
+  var left = stillToCome(i, st, list);
   if (i > 0){
-    var bills = cents(Math.max(0, sum(PLAN.fixed) + subsT - bucketSum(list, 'bills')));
-    if (bills) items.push({ name:'Bills still to come', amount: -bills });
-    var debt = cents(Math.max(0, sum(PLAN.loans) - bucketSum(list, 'debt')));
-    if (debt) items.push({ name:'Debt payments still to come', amount: -debt });
+    if (left.bills) items.push({ name:'Bills still to come', amount: -left.bills });
+    if (left.debt) items.push({ name:'Debt payments still to come', amount: -left.debt });
     if (m.key === PLAN.salary.from || afterKey(m.key, PLAN.salary.from)){
       var sal = Number(st.salary) || 0;
-      var arrived = list.some(function(c){ return c.t.amt >= sal * 0.7; });
+      /* Only real money in: not a move between own accounts, not money out of savings. */
+      var arrived = list.some(function(c){ return c.b === 'in' && !c.own && !c.hidden && c.t.amt >= sal * 0.7; });
       if (sal && !arrived) items.push({ name:'Salary', amount: sal });
     }
     extrasFor(m, st, items);
   }
   (PLAN.oneOffs || []).forEach(function(o){ if (o.month === m.key && o.amount > 0) items.push({ name:o.name, amount:o.amount }); });
-  var off = cents(Math.max(0, plannedOneOffsOut(i, st) - oneOffsIn(i)));
-  if (off) items.push({ name:'One-offs still to come', amount: -off });
+  if (left.oneoff) items.push({ name:'One-offs still to come', amount: -left.oneoff });
   return items;
+}
+/* What the plan still expects to go out in month i, item by item. A bank payment pays
+   only the plan items whose payee it names, so a card bill or an unplanned debt payment
+   never makes a loan look paid. A payment someone put in a bucket by hand and that
+   names no item pays that bucket's items instead. */
+function stillToCome(i, st, list){
+  var key = PLAN.months[i].key, plan = [];
+  function add(x, b, amount){ plan.push({ b:b, left:amount, terms: itemTerms(x) }); }
+  /* Order matters when one payee pays two items: a named one-off (the October Amex
+     bill) first, the monthly items next, the gemeente's lump sum after its monthly part. */
+  (PLAN.oneOffs || []).forEach(function(o){ if (o.month === key && o.amount < 0) add(o, 'oneoff', -o.amount); });
+  if (i > 0){
+    (PLAN.fixed || []).forEach(function(x){ add(x, 'bills', x.amount); });
+    keptSubs(st).forEach(function(x){ add(x, 'bills', x.amount); });
+    (PLAN.loans || []).forEach(function(x){ add(x, 'debt', x.amount); });
+    if (st.gem === key) add({ payee: (PLAN.gemeente.payee || ['Gemeente', 'Belastingen', 'Belastingsamenwerking']) }, 'oneoff', PLAN.gemeente.amount);
+  }
+  function pay(c, items){
+    var amt = c.out;
+    items.forEach(function(x){ var p = Math.min(amt, x.left); x.left -= p; amt -= p; });
+  }
+  list.forEach(function(c){
+    if (!c.counts || c.b === 'everyday' || c.out <= 0) return;
+    var hay = ' ' + normText(c.t.who + ' ' + (c.t.desc || '')).join(' ') + ' ';
+    var named = plan.filter(function(x){ return x.terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; }); });
+    if (named.length) pay(c, named);
+    else if (c.src === 'tag') pay(c, plan.filter(function(x){ return x.b === c.b; }));
+  });
+  var out = { bills:0, debt:0, oneoff:0 };
+  plan.forEach(function(x){ out[x.b] += Math.max(0, x.left); });
+  return { bills: cents(out.bills), debt: cents(out.debt), oneoff: cents(out.oneoff) };
 }
 
 function model(st){
@@ -1203,14 +1248,14 @@ function payeeName(s){
    payments. An item can name its payee (`payee`, a string or a list); otherwise its
    name is tried. Plan rules (`bank.rules`) come first. Words match whole. */
 var MATCH = null;
+function itemTerms(x){
+  var t = x.payee || x.name;
+  return (Array.isArray(t) ? t : [t]).map(function(s){ return normText(s).join(' '); })
+    .filter(function(s){ return s.length >= 3; });
+}
 function matchers(){
   if (MATCH && MATCH.plan === PLAN) return MATCH.list;
-  var list = [];
-  function terms(x){
-    var t = x.payee || x.name;
-    return (Array.isArray(t) ? t : [t]).map(function(s){ return normText(s).join(' '); })
-      .filter(function(s){ return s.length >= 3; });
-  }
+  var list = [], terms = itemTerms;
   ((PLAN.bank && PLAN.bank.rules) || []).forEach(function(r){ list.push({ terms: terms({ payee:r.match }), b:r.b }); });
   (PLAN.fixed || []).forEach(function(x){ list.push({ terms: terms(x), b:'bills' }); });
   (PLAN.subs || []).filter(function(s){ return !s.cancelled; }).forEach(function(x){ list.push({ terms: terms(x), b:'bills' }); });
@@ -1224,6 +1269,8 @@ function matchers(){
 var SAVINGS = /(^| )(spaar[a-z]*|sparen|direct sparen|savings?|vaults?|pockets?|deposito|vermogen[a-z]*)( |$)/;
 /* A payment this big that nothing recognises is not everyday spending until someone
    says so: it waits in To sort and counts nowhere. */
+/* Cash out of a machine: ABN writes GEA or Geldautomaat, Revolut "Cash withdrawal". */
+var ATM = /(^| )(gea|geldautomaat|geldopname|atm|cash withdrawal)( |$)/;
 function bigAmount(){ return (PLAN.bank && PLAN.bank.big) || 500; }
 
 function classify(t){
@@ -1249,6 +1296,7 @@ function classify(t){
      Money in, savings and big payments still to sort count nowhere. */
   c.counts = !c.hidden && !c.ns && c.b !== 'in' && c.b !== 'save' && c.b !== 'check';
   c.out = -t.amt;
+  c.atm = t.amt < 0 && (t.mcc === '6011' || ATM.test(normText(t.who + ' ' + (t.desc || '')).join(' ')));
   c.pocket = pocketOfAcct(t.k);
   return c;
 }
@@ -1289,16 +1337,33 @@ function accountOf(k){
 function bankShort(name){ return String(name || '').replace(/\s+(Bank|N\.?V\.?|UAB)$/i, ''); }
 /* Accounts the bank sync cannot see, entered by hand in the plan (bank.manual). */
 function manualAccounts(){ return (PLAN && PLAN.bank && PLAN.bank.manual) || []; }
+/* A hand-entered savings balance moves with the transfers the bank shows after its
+   date: money put aside at the same bank adds to it, money taken out of savings into
+   a connected account comes off it. Otherwise a standing order out of savings would
+   be counted twice, once in each account. */
+function savingsMoves(m){
+  if (!hasBank() || !m.asOf) return 0;
+  var bank = String(m.bank || '').toLowerCase();
+  return cents(classified().reduce(function(t, c){
+    if (c.b !== 'save' || c.own || c.hidden || c.t.d <= m.asOf) return t;
+    var a = accountOf(c.t.k);
+    if (bank && (!a || bankShort(a.bank).toLowerCase().indexOf(bankShort(bank).toLowerCase()) !== 0)) return t;
+    return t - c.t.amt;
+  }, 0));
+}
+function manualBal(m){ return cents(Number(m.bal) + savingsMoves(m)); }
 function manualRowsHtml(){
   return manualAccounts().map(function(m){
+    var moved = savingsMoves(m);
     return '<div class="row"><span class="grow"><b>' + esc(m.name) + '</b><span class="sub">' +
-      esc((m.bank ? m.bank + ' · ' : '') + 'entered by hand' + (m.asOf ? ', ' + shortDate(m.asOf) : '')) + '</span></span>' +
-      '<span class="amt">' + esc(fmt(m.bal)) + '</span></div>';
+      esc((m.bank ? m.bank + ' · ' : '') + 'entered by hand' + (m.asOf ? ', ' + shortDate(m.asOf) : '') +
+        (moved ? ' · ' + (moved > 0 ? '+' : '−') + fmt(Math.abs(moved)) + ' moved since' : '')) + '</span></span>' +
+      '<span class="amt">' + esc(fmt(manualBal(m))) + '</span></div>';
   }).join('');
 }
 function inTheBank(){
   var sum = 0, n = 0;
-  manualAccounts().forEach(function(m){ if (Number.isFinite(Number(m.bal))){ sum += Number(m.bal); n++; } });
+  manualAccounts().forEach(function(m){ if (Number.isFinite(Number(m.bal))){ sum += manualBal(m); n++; } });
   ((BANK && BANK.conns) || []).forEach(function(c){
     (c.accounts || []).forEach(function(a){
       if (a.bal !== null && a.bal !== undefined && (!a.cur || a.cur === 'EUR')){ sum += a.bal; n++; }
@@ -1843,7 +1908,7 @@ function renderSheet(){
     else {
       var t = c.t, acct = accountOf(t.k), credit = t.amt > 0;
       var pick = payDraft.b;
-      var choices = BUCKETS.concat(credit ? [['in','Money in']] : []);
+      var choices = BUCKETS.concat([['save','Savings']]).concat(credit ? [['in','Money in']] : []);
       var whyNow = c.own ? 'Money between your own connected accounts: never counted.'
         : c.b === 'save' && c.src === 'auto' ? 'Looks like money put into savings: never counted. Pick a bucket if it was spending.'
         : c.b === 'check' ? 'Big, and nothing recognised it, so it counts nowhere until you pick where it goes.'

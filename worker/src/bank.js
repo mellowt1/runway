@@ -42,7 +42,7 @@ const SYNC_COOLDOWN = 10 * 60 * 1000;
 const PIN_TRIES = 5;
 const PIN_LOCK = 24 * 3600 * 1000;
 const MAX_KEYS = 12;
-const BUCKETS = new Set(['bills', 'everyday', 'debt', 'oneoff']);
+const BUCKETS = new Set(['bills', 'everyday', 'debt', 'oneoff', 'save', 'in']);
 const BALANCE_PREF = ['ITAV', 'CLAV', 'XPCD', 'ITBD', 'CLBD', 'OPAV', 'PRCD', 'OTHR'];
 const APP = 'https://mellowt1.github.io/runway/';
 
