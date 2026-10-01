@@ -515,7 +515,7 @@ details p{font:400 21px/1.2 var(--serif)}
       <p class="word">RUNWAY</p>
       <button class="pill" data-sheet="adjust">Adjust</button>
     </div>
-    <h1 class="h1">The <i>runway</i></h1>
+    <h1 class="h1">Coming <i>months</i></h1>
     <div id="f-hero"></div>
     <div id="f-chart"></div>
     <div id="f-grid"></div>
@@ -1886,12 +1886,12 @@ function renderLive(){
   var box = $('livebar');
   if (!box) return;
   if (!changed()){ box.innerHTML = ''; return; }
-  var who = REMOTE.by && REMOTE.by !== ME ? esc(REMOTE.by) + '’s numbers'
-          : (REMOTE.by === ME && ME ? 'Your numbers' : 'Changed numbers');
+  var who = REMOTE.by && REMOTE.by !== ME ? esc(REMOTE.by) + ' changed the plan'
+          : (REMOTE.by === ME && ME ? 'You changed the plan' : 'The plan was changed');
   var when = dirty ? 'saving…' : ago(REMOTE.updated);
   box.innerHTML = '<div class="live"><span class="who"><i></i><span>' + who +
     (when ? ' · ' + when : '') + '</span></span>' +
-    '<button data-sheet="changed">What changed ›</button></div>';
+    '<button data-sheet="changed">See what ›</button></div>';
 }
 
 function render(){
@@ -1917,23 +1917,23 @@ function render(){
     : '<p class="fig-xl">' + esc(fmt(cur.end)) + '</p>' +
       '<p class="deck">where the account ends up, by ' + esc(lastLabel) + '.</p>';
   $('t-cats').hidden = !env;
-  $('t-cats').innerHTML = env ? dailyHtml(env) + catsHtml(env) : '';
+  /* The daily chart says nothing until something has been spent. */
+  $('t-cats').innerHTML = env ? (env.spent > 0 ? dailyHtml(env) : '') + catsHtml(env) : '';
 
   var d = dip(cur.M);
   var dipText = d
-    ? cur.M.slice(d.lo, d.hi+1).map(function(m){ return m.label; }).join(' and ') + ' ' +
-      (d.hi > d.lo ? 'are' : 'is') + ' ' + PLAN.bridge.short
+    ? cur.M.slice(d.lo, d.hi+1).map(function(m){ return m.label; }).join(' and ') + ': ' + PLAN.bridge.label
     : 'Never below zero';
-  $('t-bank').innerHTML = todayBankHtml(env) +
-    '<button class="link" data-go="forecast"><span>' + esc(dipText) + '</span><span class="chev">›</span></button>';
+  $('t-bank').innerHTML = '<p class="eyebrow ink" style="padding-bottom:4px">Your money</p>' + todayBankHtml(env);
   document.querySelectorAll('[data-sheet="log"]').forEach(function(b){
-    if (b.classList.contains('pill')) b.textContent = hasBank() ? 'Cash' : 'New entry';
+    if (b.classList.contains('pill')) b.textContent = hasBank() ? 'Enter cash' : 'New entry';
   });
 
-  $('t-nav').innerHTML = [
-    ['month','Month','What a normal month costs', fmt(cur.monthly)],
-    ['subs','Subscriptions', keptSubs(S).length + ' kept', fmt(cur.subsT, true)],
-    ['debts','Debts', PLAN.debts.usTotal + ' on three US cards', PLAN.debts.usTotal]
+  $('t-nav').innerHTML = '<p class="eyebrow ink" style="padding:14px 0 4px">The plan</p>' + [
+    ['forecast','The coming months', dipText, fmt(cur.end) + ' by ' + lastLabel.slice(0, 3)],
+    ['month','Monthly costs','Bills, loans, subscriptions, everyday', fmt(cur.monthly)],
+    ['subs','Subscriptions', keptSubs(S).length + ' kept · ' + fmt(cur.subsT * 12) + ' a year', fmt(cur.subsT, true)],
+    ['debts','Debts', 'Three US cards and the Dutch loans', PLAN.debts.usTotal]
   ].map(function(r){
     return '<button class="row" data-go="' + r[0] + '"><span class="grow"><b>' + esc(r[1]) +
       '</b><span class="sub">' + esc(r[2]) + '</span></span><span class="amt">' + esc(r[3]) +
@@ -1942,11 +1942,11 @@ function render(){
 
   /* Forecast */
   var A = anchor();
-  $('f-hero').innerHTML = '<p class="deck">What ' + (A ? 'the money' : 'the account') + ' holds at the end of each month, ' +
-      (A ? 'starting from the <b>' + esc(fmt(A.bal)) + '</b> in the bank today' + (manualAccounts().length ? ', savings included' : '') +
-        (changed() ? ', with the changes made.' : '.') : (changed() ? 'with the changes made.' : 'on the plan.')) + '</p>' +
-    '<div class="stats"><div><span class="v">' + esc(fmt(cur.end)) + '</span><span class="k">end of ' + esc(lastLabel) + '</span></div>' +
-      '<div><span class="v">' + esc(fmt(cur.monthly)) + '</span><span class="k">a normal month</span></div></div>';
+  $('f-hero').innerHTML = '<p class="deck">How much money is left at the end of each month' +
+      (A ? ', starting from the <b>' + esc(fmt(A.bal)) + '</b> you have today' + (manualAccounts().length ? ' (savings included)' : '') : '') +
+      (changed() ? ', with the changes made.' : '.') + '</p>' +
+    '<div class="stats"><div><span class="v">' + esc(fmt(cur.end)) + '</span><span class="k">left at the end of ' + esc(lastLabel) + '</span></div>' +
+      '<div><span class="v">' + esc(fmt(cur.monthly)) + '</span><span class="k">what a month costs</span></div></div>';
 
   $('f-chart').innerHTML = forecastBarsHtml(cur.M);
 
@@ -1957,8 +1957,8 @@ function render(){
       '<div><span class="eyebrow good">From ' + esc(salaryFrom) + '</span>' +
         '<p>Salary returns, ' + esc(fmt(S.salary)) + ' net.</p></div>' +
     '</div>' +
-    '<p class="small" style="margin-top:20px">Assumes ' + esc(fmt(flexTotal(S))) + ' a month on ' +
-      esc(andList(PLAN.flex.map(function(f){ return f.label.toLowerCase(); }))) + '. ' + esc(FORECAST_SPEND_RULE) + '</p>';
+    '<p class="small" style="margin-top:20px">Counts ' + esc(fmt(flexTotal(S))) + ' a month for ' +
+      esc(flexWords()) + '. ' + esc(FORECAST_SPEND_RULE) + '</p>';
 
   /* Month */
   $('m-hero').innerHTML = '<p class="lbl">A normal month costs</p>' +
@@ -2077,9 +2077,8 @@ function render(){
   renderUndo();
 }
 
-var FORECAST_SPEND_RULE = 'Logged spending moves this only when a category goes over its budget. ' +
-  'Spending less than a budget is not counted as saved, because the bank figure is a snapshot ' +
-  'and not every spend gets logged.';
+var FORECAST_SPEND_RULE = 'Spending more than that lowers these figures. Spending less does not raise them ' +
+  'until it shows up in the bank.';
 
 function statusHtml(){
   var st = sendStatus();
@@ -2098,15 +2097,22 @@ function heroHtml(e){
     ? 'with <b>' + inWords(e.daysLeft) + (e.daysLeft === 1 ? ' day' : ' days') + '</b> to go'
     : 'and the month is over';
   var pace = paceOf(e);
-  return '<p class="fig-xl' + (fig.length > 6 ? ' long' : '') + (over ? ' over' : '') + '">' + esc(fig) + '</p>' +
-    '<p class="deck">' + (over ? 'over the budget for ' : 'left for ') + esc(e.label) + ', ' + days + '.</p>' +
+  /* Until something is spent the pace only repeats the allowance, so it waits. */
+  var paceCell = e.spent > 0
+    ? '<div><span class="v ' + (pace >= 0 ? 'good' : 'over') + '">' + esc(fmtAmt(Math.abs(pace))) + '</span>' +
+        '<span class="k">' + (pace >= 0 ? 'less than planned so far' : 'more than planned so far') + '</span></div>'
+    : '<div><span class="v">' + esc(fmtAmt(e.spent)) + '</span><span class="k">spent so far</span></div>';
+  return '<p class="eyebrow ink">Everyday spending · ' + esc(e.label) + '</p>' +
+    '<p class="fig-xl' + (fig.length > 6 ? ' long' : '') + (over ? ' over' : '') + '" style="margin-top:10px">' + esc(fig) + '</p>' +
+    '<p class="deck">' + (over ? 'over the budget' : 'left to spend') + ' on ' + esc(flexWords()) + ', ' + days + '.</p>' +
     '<div class="stats">' +
       '<div><span class="v">' + (e.perDay !== null ? esc(fmtAmt(cents(e.perDay))) : '—') + '</span>' +
-        '<span class="k">a day from here</span></div>' +
-      '<div><span class="v ' + (pace >= 0 ? 'good' : 'over') + '">' + esc(fmtAmt(Math.abs(pace))) + '</span>' +
-        '<span class="k">' + (pace >= 0 ? 'under the pace' : 'over the pace') + '</span></div>' +
+        '<span class="k">a day you can spend</span></div>' +
+      paceCell +
     '</div>' + statusHtml();
 }
+/* "food, going out and misc", from the plan's flex lines. */
+function flexWords(){ return andList(PLAN.flex.map(function(f){ return f.label.toLowerCase(); })); }
 
 /* Figures in the table drop the currency sign; the column heads say what they are. */
 function bare(v){ return fmtAmt(v).replace(CUR, ''); }
