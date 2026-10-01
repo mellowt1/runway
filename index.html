@@ -6,6 +6,12 @@
 <title>Runway</title>
 <meta name="description" content="What is left, what is coming, and what to do next.">
 <meta name="theme-color" content="#021006">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Runway">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" id="manifest" href="manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap">
@@ -446,6 +452,21 @@ select{font:400 22px var(--serif)}
 .pocket{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 0 12px}
 .pocket select{width:auto;min-width:150px;margin:0}
 .plist li{font:400 22px/1.15 var(--serif)}
+
+/* the decision card: amber, the one thing on Today that asks for something */
+.act{border:2px solid var(--over);padding:14px 14px 4px;margin-top:18px;color:var(--over);text-shadow:0 0 6px rgba(255,179,71,.4)}
+.act[hidden]{display:none}
+.act .eyebrow{color:var(--over)}
+.act .eyebrow::before{content:"▲ "}
+.act h3{font:400 40px/1 var(--serif);text-transform:uppercase;margin-top:6px;overflow-wrap:anywhere}
+.act .deck{font-size:22px;color:var(--ink);margin-top:4px}
+.act .note{font:400 22px/1.15 var(--serif);color:var(--ink);border-left:3px solid var(--over);padding:2px 0 2px 10px;margin:10px 0 4px}
+.act .note .by{display:block;font:400 11px var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--over);margin-bottom:4px}
+.act .row{border-top:1px dashed var(--rule)}
+.act .row b{color:var(--ink)}
+.act .row .pill{flex:none;min-height:40px;padding:0 10px}
+.act .ok{font:400 12px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--over);min-height:40px}
+.act .link{color:var(--ink)}
 details summary{font:400 20px var(--serif);text-transform:uppercase}
 details p{font:400 21px/1.2 var(--serif)}
 .quote{font:400 30px/1.1 var(--serif);text-transform:uppercase}
@@ -511,6 +532,7 @@ details p{font:400 21px/1.2 var(--serif)}
         <button class="snd" id="snd" type="button" aria-pressed="true">Sound on</button></div>
       <button class="pill solid" data-sheet="log">New entry</button>
     </div>
+    <div class="act" id="t-act" hidden></div>
     <div id="t-hero"></div>
     <div id="t-cats"></div>
     <div class="card" id="t-bank"></div>
@@ -2159,6 +2181,9 @@ function render(){
   $('t-date').textContent = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
   var ci = monthIndexOf(todayStr());
   var env = inRange(ci) ? envelope(ci) : null;
+  var act = actHtml();
+  $('t-act').innerHTML = act;
+  $('t-act').hidden = !act;
   $('t-hero').innerHTML = env ? heroHtml(env)
     : '<p class="fig-xl">' + esc(fmt(cur.end)) + '</p>' +
       '<p class="deck">where the account ends up, by ' + esc(lastLabel) + '.</p>';
@@ -2330,6 +2355,151 @@ function render(){
 
 var FORECAST_SPEND_RULE = 'Spending more than that lowers these figures. Spending less does not raise them ' +
   'until it shows up in the bank.';
+
+/* ─────────────────────────── the decision card ───────────────────────────
+   When a month still ends below zero, Today opens with it and two ready fixes, each
+   worked out by running the forecast until no month is short: spend less on the
+   everyday budgets, or pause subscriptions (those the plan marks pause:false, card
+   fees, never), topped up with an everyday cut when pausing is not enough. */
+
+function shortOf(st){
+  var M = model(st).M, worst = null;
+  M.forEach(function(m){ if (m.bal < 0 && (!worst || m.bal < worst.bal)) worst = m; });
+  return worst ? { by: cents(-worst.bal), month: worst } : null;
+}
+/* Takes a step off the biggest everyday budget, round by round, until nothing is short. */
+function cutEveryday(st){
+  var flex = PLAN.flex.slice().sort(function(a, b){ return (Number(st[b.id])||0) - (Number(st[a.id])||0); });
+  for (var guard = 0; guard < 200 && shortOf(st); ){
+    var moved = false;
+    for (var i = 0; i < flex.length && shortOf(st); i++){
+      var f = flex[i], v = Number(st[f.id]) || 0;
+      if (v - f.step >= f.min){ st[f.id] = v - f.step; moved = true; guard++; }
+    }
+    if (!moved) break;
+  }
+  return st;
+}
+function fixes(){
+  var now = shortOf(S);
+  if (!now) return null;
+  var a = cutEveryday(Object.assign({}, S));
+  var b = Object.assign({}, S, { subs: (S.subs || []).slice() }), paused = [];
+  keptSubs(S).filter(function(s){ return s.pause !== false; })
+    .sort(function(x, y){ return y.amount - x.amount; })
+    .forEach(function(s){
+      if (!shortOf(b)) return;
+      b.subs = b.subs.filter(function(id){ return id !== s.id; });
+      paused.push(s);
+    });
+  if (shortOf(b)) b = cutEveryday(b);
+  return { now: now, a: a, aLeft: shortOf(a), b: paused.length ? b : null, bLeft: paused.length ? shortOf(b) : null, paused: paused };
+}
+/* A note from the owner sits on top of the card. One about the shortfall (the
+   default) leaves with it; always:true keeps it until it is read. */
+function noticeOpen(short){
+  var n = PLAN.notice;
+  if (!n || !n.id || !n.body || store.get('runway-notice') === n.id) return null;
+  return short || n.always ? n : null;
+}
+function actHtml(){
+  var fx = fixes(), n = noticeOpen(!!fx);
+  if (!fx && !n) return '';
+  var html = '<p class="eyebrow">' + (fx ? 'Needs a decision' : 'A note') + '</p>';
+  if (n) html += '<p class="note"><span class="by">From ' + esc(n.from || PLAN.people.other) + '</span>' + esc(n.body) + '</p>' +
+    (fx ? '' : '<button class="ok" data-fix="notice">Got it</button>');
+  if (fx){
+    var m = fx.now.month, br = m.bridged;
+    html += '<h3>' + esc(m.label) + ' is ' + esc(fmt(fx.now.by)) + ' short</h3>' +
+      '<p class="deck">' + (br ? 'even with ' + esc(PLAN.bridge.by) + '’s ' + esc(fmt(br)) + '. ' : '') +
+      (fx.aLeft && (!fx.b || fx.bLeft) ? 'Nothing below closes all of it; each gets closer.' : 'Either of these closes it:') + '</p>';
+    var cut = cents(flexTotal(S) - flexTotal(fx.a));
+    html += optHtml('a', 'Spend ' + fmt(cut) + ' less a month',
+      PLAN.flex.map(function(f){ return f.label + ' ' + fmt(fx.a[f.id]); }).join(' · ') +
+      ' (now ' + fmt(flexTotal(S)) + ')', fx.aLeft);
+    if (fx.b){
+      var subsCut = sum(fx.paused), extra = cents(flexTotal(S) - flexTotal(fx.b));
+      html += optHtml('b', 'Pause ' + inWords(fx.paused.length) + (fx.paused.length === 1 ? ' subscription' : ' subscriptions') +
+        (extra ? ', spend ' + fmt(extra) + ' less' : ''),
+        fx.paused.map(function(s){ return s.name; }).join(', ') + ' · ' + fmt(subsCut) + ' a month', fx.bLeft);
+    }
+    html += '<button class="link" data-sheet="adjust"><span>Make my own mix</span><span class="n">›</span></button>';
+    if (n) html += '<button class="ok" data-fix="notice">Hide the note</button>';
+  }
+  return html + alertsLine();
+}
+function optHtml(k, title, sub, left){
+  return '<div class="row"><span class="grow"><b>' + esc(title) + '</b><span class="sub">' + esc(sub) +
+    (left ? ' · still ' + esc(fmt(left.by)) + ' short' : '') + '</span></span>' +
+    '<button class="pill" data-fix="' + k + '">Use this</button></div>';
+}
+function useFix(k){
+  var fx = fixes();
+  if (!fx) return;
+  var st = k === 'a' ? fx.a : fx.b;
+  if (!st) return;
+  var tasks = S.tasks;
+  S = Object.assign({}, st, { tasks: tasks });
+  push();
+  render();
+}
+
+/* ── alerts: Web Push, so a note from the owner reaches the phone ── */
+
+var isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function standalone(){ return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
+function pushOk(){ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+var alerts = 'none', alertErr = false;
+function withTimeout(p, ms){ return Promise.race([p, new Promise(function(_, no){ setTimeout(function(){ no(new Error('timeout')); }, ms); })]); }
+async function checkAlerts(){
+  if (!pushOk()) alerts = isIos && !standalone() ? 'ios' : 'none';
+  else if (Notification.permission === 'denied') alerts = 'denied';
+  else {
+    try {
+      var reg = await withTimeout(navigator.serviceWorker.ready, 4000);
+      alerts = (await reg.pushManager.getSubscription()) ? 'on' : 'off';
+    } catch(e){ alerts = 'none'; }
+  }
+  render();
+}
+async function alertsOn(){
+  alertErr = false;
+  try {
+    var perm = await Notification.requestPermission();
+    if (perm === 'granted'){
+      var reg = await withTimeout(navigator.serviceWorker.ready, 4000);
+      var key = (await (await fetch(API + '/api/vapid')).json()).key;
+      var bytes = Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/')), function(c){ return c.charCodeAt(0); });
+      var sub = (await reg.pushManager.getSubscription()) ||
+        await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+      var res = await fetch(API + '/api/push/' + CODE, {
+        method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ by: ME || null, sub: sub.toJSON() })
+      });
+      if (!res.ok) throw new Error('subscribe ' + res.status);
+    }
+  } catch(e){ alertErr = true; }
+  await checkAlerts();
+}
+function alertsLine(){
+  if (alertErr) return '<p class="status warn">Alerts did not turn on. Try again in a moment.</p>';
+  if (alerts === 'off') return '<div class="row"><span class="grow"><b>Get alerts</b><span class="sub">A message on this phone when ' +
+    esc(PLAN.people.other) + ' changes something</span></span><button class="pill" data-fix="alerts">Turn on</button></div>';
+  if (alerts === 'ios') return '<p class="small" style="padding:10px 0">For alerts on this iPhone: Share › Add to Home Screen, then open Runway from there.' +
+    ' If it asks for a code: <b>' + esc(CODE) + '</b></p>';
+  return '';
+}
+
+/* The Home Screen app starts at the link it was added from, code and name included:
+   on an iPhone its storage is not Safari's, so it cannot look the code up. */
+function setManifest(){
+  if (!CODE) return;
+  var base = location.origin + location.pathname.replace(/[^/]*$/, '');
+  var m = { name:'Runway', short_name:'Runway', display:'standalone', background_color:'#021006', theme_color:'#021006',
+    scope: base, id: base, start_url: base + '?c=' + CODE + (ME ? '&me=' + encodeURIComponent(ME) : ''),
+    icons: [{ src: base + 'icon-192.png', sizes:'192x192', type:'image/png' },
+            { src: base + 'icon-512.png', sizes:'512x512', type:'image/png', purpose:'any maskable' }] };
+  $('manifest').href = URL.createObjectURL(new Blob([JSON.stringify(m)], { type:'application/manifest+json' }));
+}
 
 function statusHtml(){
   var st = sendStatus();
@@ -2700,6 +2870,14 @@ function renderFloat(cur, base){
 
 document.addEventListener('click', function(e){
   if (e.target.closest('#snd')) return SFX.set(!SFX.isOn());
+  var fixBtn = e.target.closest('[data-fix]');
+  if (fixBtn){
+    e.preventDefault();
+    var fk = fixBtn.dataset.fix;
+    if (fk === 'notice'){ store.set('runway-notice', PLAN.notice && PLAN.notice.id); return render(); }
+    if (fk === 'alerts') return alertsOn();
+    return useFix(fk);
+  }
   var bk = e.target.closest('[data-pin],[data-pinkey],[data-pay],[data-move],[data-scope],[data-pays],[data-bf],[data-kf],[data-connect],[data-disconnect]');
   if (bk){
     e.preventDefault();
@@ -2885,6 +3063,9 @@ $('boot-code').addEventListener('keydown', function(e){ if (e.key === 'Enter') $
 async function start(){
   if (!CODE) return showBoot();
   store.set('runway-code', CODE);
+  if (!isIos) setManifest();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function(){});
+  checkAlerts();
   var ob = store.get(outboxKey());
   OUTBOX = Array.isArray(ob) ? ob : [];
   bankKey = store.get(bankKeyName()) || null;

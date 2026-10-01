@@ -24,6 +24,8 @@
  *   POST   /api/spend/:code        <- { by, spend }       -> { ok, spend, rev }     upsert by spend.id
  *   DELETE /api/spend/:code/:id    <- { by }              -> { ok, removed, rev }
  *
+ * Alerts (Web Push) are in alerts.js.
+ *
  * The plan GET also carries `bank: { pin, conns, rev }` so a phone knows when to fetch
  * the bank side. That side (a PIN, the bank connections, the sync) is in bank.js.
  *
@@ -33,6 +35,7 @@
  */
 
 import { bankRoutes, bankSummary, syncAll } from './bank.js';
+import { alertRoutes, notify } from './alerts.js';
 
 const ORIGINS = new Set([
   'https://mellowt1.github.io',
@@ -166,8 +169,16 @@ async function handlePlan(request, env, code) {
     }
     const text = JSON.stringify(body.plan);
     if (text.length > MAX_PLAN) return json({ error: 'plan too large' }, request, 413);
+    const before = await readDoc(env, planKey);
     await env.RUNWAY_KV.put(planKey, text, { expirationTtl: TTL });
-    return json({ ok: true, bytes: text.length }, request);
+    // A new note from the owner goes out as an alert to the reader's phones.
+    const n = body.plan.notice;
+    let alerted = null;
+    if (n && n.id && (!before || !before.notice || before.notice.id !== n.id)) {
+      alerted = await notify(env, code, { title: 'Runway', body: String(n.push || n.body || '').slice(0, 180) }, null,
+        body.plan.people && body.plan.people.other);
+    }
+    return json({ ok: true, bytes: text.length, alerted }, request);
   }
 
   return json({ error: 'method' }, request, 405);
@@ -286,6 +297,8 @@ export default {
       new Response(text, { status, headers: { ...cors(request), 'Content-Type': 'application/json' } });
     const b = await bankRoutes(request, env, ctx, url, reply);
     if (b) return b;
+    const a = await alertRoutes(request, env, url, reply);
+    if (a) return a;
 
     return json({ error: 'not found' }, request, 404);
   },
