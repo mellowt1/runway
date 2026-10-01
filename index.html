@@ -1606,44 +1606,68 @@ var SFX = (function(){
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     src.connect(f); f.connect(g); g.connect(out); src.start(t); src.stop(t + dur);
   }
-  /* The readout: short square chirps on a handful of pitches, with small gaps,
-     the way the Nostromo's screens print a line. */
-  var PITCH = [1318, 1568, 1760, 2093, 2349, 2637, 3136];
+  /* A buzzy pulse: a low square wave through a band that brings out its upper
+     harmonics, the dry relay buzz of a 1970s terminal. */
+  function buzz(t, dur, freq, vol, centre){
+    var o = ctx.createOscillator(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    o.type = 'square'; o.frequency.setValueAtTime(freq, t);
+    bp.type = 'bandpass'; bp.frequency.value = centre || 1250; bp.Q.value = 0.9;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.002);
+    g.gain.setValueAtTime(vol, t + Math.max(0.003, dur - 0.003));
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    o.connect(bp); bp.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.01);
+  }
+  function busy(){ return now() >= last - 0.1; }   // one readout at a time
+  function now(){ return ctx.currentTime; }
+  /* Screen readout: fast pulse train, about 45 a second, pulses and gaps of
+     5 to 25 ms, pitch wandering around 140 Hz. */
   function chatter(len){
-    if (!wake()) return;
-    var now = ctx.currentTime;
-    if (now < last - 0.1) return;           // one readout at a time
-    var t = now + 0.01, end = t + (len || 0.42);
+    if (!wake() || !busy()) return;
+    var t = now() + 0.01, end = t + (len || 0.5);
     while (t < end){
-      if (Math.random() < 0.14){ t += 0.035; continue; }
-      var d = 0.018 + Math.random() * 0.028;
-      tone('square', PITCH[(Math.random() * PITCH.length) | 0], t, d, 0.5);
-      t += d + 0.008;
+      var on = 0.005 + Math.random() * 0.02, off = 0.005 + Math.random() * 0.018;
+      buzz(t, on, 128 + Math.random() * 26, 0.9, 1150 + Math.random() * 250);
+      t += on + off;
     }
     last = end;
   }
+  /* Sheet readout: slower mid tones in short groups with a pause between. */
+  var MID = [525, 650, 750];
+  function readout(len){
+    if (!wake() || !busy()) return;
+    var t = now() + 0.01, end = t + (len || 0.55), n = 0;
+    while (t < end){
+      tone('triangle', MID[(Math.random() * MID.length) | 0], t, 0.022 + Math.random() * 0.008, 0.55);
+      t += 0.055 + Math.random() * 0.012;
+      if (++n % (4 + ((Math.random() * 2) | 0)) === 0) t += 0.11;
+    }
+    last = end;
+  }
+  /* Key: a short heavy buzz with a click on top. */
   function key(){
     if (!wake()) return;
-    var t = ctx.currentTime + 0.002;
-    noise(t, 0.028, 1800, 0.9);
-    tone('sine', 140, t, 0.045, 0.6);
+    var t = now() + 0.002;
+    noise(t, 0.012, 2500, 0.5);
+    buzz(t, 0.035, 140, 0.8, 600);
   }
+  /* Kept: a high, pure beep trill. */
   function ok(){
     if (!wake()) return;
-    var t = ctx.currentTime + 0.03;
-    tone('square', 1760, t, 0.07, 0.45);
-    tone('square', 2637, t + 0.09, 0.11, 0.45);
+    var t = now() + 0.03;
+    for (var i = 0; i < 6; i++){ tone('sine', 2600 + (i % 2) * 40, t, 0.025, 0.5); t += 0.05; }
   }
+  /* Refused: two long low buzzes. */
   function no(){
     if (!wake()) return;
-    var t = ctx.currentTime + 0.01;
-    tone('sawtooth', 196, t, 0.12, 0.5);
-    tone('sawtooth', 196, t + 0.17, 0.16, 0.5);
+    var t = now() + 0.01;
+    buzz(t, 0.16, 110, 1, 500);
+    buzz(t + 0.22, 0.2, 110, 1, 500);
   }
   function set(v){
     on = !!v; store.set('runway-sound', on);
     if (!on && ctx) ctx.suspend();
-    if (on){ wake(); chatter(0.3); }
+    if (on){ wake(); chatter(0.35); }
     paint();
   }
   function paint(){
@@ -1651,7 +1675,7 @@ var SFX = (function(){
     if (b){ b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Sound on' : 'Sound off'; }
   }
   function arm(){ armed = true; }
-  return { arm:arm, chatter:chatter, key:key, ok:ok, no:no, set:set, paint:paint, isOn:function(){ return on; } };
+  return { arm:arm, chatter:chatter, readout:readout, key:key, ok:ok, no:no, set:set, paint:paint, isOn:function(){ return on; } };
 })();
 
 /* Every press is a key on MU-TH-UR's deck. Capture phase, so it sounds before the
@@ -1666,7 +1690,7 @@ document.addEventListener('pointerdown', function(e){
 var sheetKind = null, draft = null, lastFocus = null, logDraft = null;
 
 function openSheet(kind){
-  SFX.chatter(0.22);
+  SFX.readout();
   sheetKind = kind;
   draft = Object.assign({}, S, { subs: (S.subs||[]).slice() });
   if (kind === 'log') logDraft = { cat: lastCat(), day: 'today', dir: 'out' };
