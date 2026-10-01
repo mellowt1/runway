@@ -439,6 +439,10 @@ input[type=range]::-moz-range-thumb{border-radius:0}
 .acts .ghost{border:2px solid var(--ink)}
 .acts .solid{text-shadow:none}
 select{font:400 22px var(--serif)}
+.snd{font:400 11px var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);min-height:32px;padding:0}
+.snd[aria-pressed="true"]{color:var(--ink)}
+.snd::before{content:"■ "}
+.snd[aria-pressed="false"]::before{content:"□ "}
 .pocket{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 0 12px}
 .pocket select{width:auto;min-width:150px;margin:0}
 .plist li{font:400 22px/1.15 var(--serif)}
@@ -503,7 +507,8 @@ details p{font:400 21px/1.2 var(--serif)}
 
   <section class="screen" id="s-today" hidden>
     <div class="mast">
-      <div><p class="word">RUNWAY</p><p class="dateline" id="t-date"></p></div>
+      <div><p class="word">RUNWAY</p><p class="dateline" id="t-date"></p>
+        <button class="snd" id="snd" type="button" aria-pressed="true">Sound on</button></div>
       <button class="pill solid" data-sheet="log">New entry</button>
     </div>
     <div id="t-hero"></div>
@@ -1557,11 +1562,111 @@ function forecastBarsHtml(M){
   }).join('') + '</div>';
 }
 
+/* ─────────────────────────── sound ───────────────────────────
+   MU-TH-UR's voice, made here in Web Audio: the readout chatter when a screen
+   comes up, a chunky key click on every press, a two-note chirp when something is
+   kept, a low buzz when something is refused. No recordings. The phone's silent
+   switch is honoured where Safari allows it (audioSession "ambient"), and the
+   choice is kept per phone. Audio can only start from a tap, so the first tap
+   wakes it. */
+var SFX = (function(){
+  var ctx = null, out = null, on = store.get('runway-sound') !== false, last = 0, armed = false;
+  function wake(){
+    if (!on || !armed) return null;   // before the first tap a sound would only queue up
+    if (!ctx){
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch(e){}
+      ctx = new AC();
+      out = ctx.createGain(); out.gain.value = 0.11;
+      var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200;
+      out.connect(lp); lp.connect(ctx.destination);
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  function tone(type, freq, t, dur, vol){
+    var o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.004);
+    g.gain.setValueAtTime(vol, t + dur - 0.006);
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.01);
+  }
+  var noiseBuf = null;
+  function noise(t, dur, hp, vol){
+    if (!noiseBuf){
+      noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
+      var d = noiseBuf.getChannelData(0);
+      for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    var src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = noiseBuf; f.type = 'highpass'; f.frequency.value = hp;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(out); src.start(t); src.stop(t + dur);
+  }
+  /* The readout: short square chirps on a handful of pitches, with small gaps,
+     the way the Nostromo's screens print a line. */
+  var PITCH = [1318, 1568, 1760, 2093, 2349, 2637, 3136];
+  function chatter(len){
+    if (!wake()) return;
+    var now = ctx.currentTime;
+    if (now < last - 0.1) return;           // one readout at a time
+    var t = now + 0.01, end = t + (len || 0.42);
+    while (t < end){
+      if (Math.random() < 0.14){ t += 0.035; continue; }
+      var d = 0.018 + Math.random() * 0.028;
+      tone('square', PITCH[(Math.random() * PITCH.length) | 0], t, d, 0.5);
+      t += d + 0.008;
+    }
+    last = end;
+  }
+  function key(){
+    if (!wake()) return;
+    var t = ctx.currentTime + 0.002;
+    noise(t, 0.028, 1800, 0.9);
+    tone('sine', 140, t, 0.045, 0.6);
+  }
+  function ok(){
+    if (!wake()) return;
+    var t = ctx.currentTime + 0.03;
+    tone('square', 1760, t, 0.07, 0.45);
+    tone('square', 2637, t + 0.09, 0.11, 0.45);
+  }
+  function no(){
+    if (!wake()) return;
+    var t = ctx.currentTime + 0.01;
+    tone('sawtooth', 196, t, 0.12, 0.5);
+    tone('sawtooth', 196, t + 0.17, 0.16, 0.5);
+  }
+  function set(v){
+    on = !!v; store.set('runway-sound', on);
+    if (!on && ctx) ctx.suspend();
+    if (on){ wake(); chatter(0.3); }
+    paint();
+  }
+  function paint(){
+    var b = $('snd');
+    if (b){ b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Sound on' : 'Sound off'; }
+  }
+  function arm(){ armed = true; }
+  return { arm:arm, chatter:chatter, key:key, ok:ok, no:no, set:set, paint:paint, isOn:function(){ return on; } };
+})();
+
+/* Every press is a key on MU-TH-UR's deck. Capture phase, so it sounds before the
+   press changes the screen. */
+document.addEventListener('pointerdown', function(e){
+  SFX.arm();
+  if (e.target.closest('button, select, label, a, input, summary') && !e.target.closest('#snd')) SFX.key();
+}, true);
+
 /* ─────────────────────────── the sheet ─────────────────────────── */
 
 var sheetKind = null, draft = null, lastFocus = null, logDraft = null;
 
 function openSheet(kind){
+  SFX.chatter(0.22);
   sheetKind = kind;
   draft = Object.assign({}, S, { subs: (S.subs||[]).slice() });
   if (kind === 'log') logDraft = { cat: lastCat(), day: 'today', dir: 'out' };
@@ -1581,6 +1686,7 @@ function closeSheet(){
   if (lastFocus && lastFocus.focus) lastFocus.focus();
 }
 function keepSheet(){
+  SFX.ok();
   S = Object.assign({}, draft);
   closeSheet();
   push();
@@ -1844,7 +1950,8 @@ function spendFromSheet(){
 }
 function saveSpend(){
   var r = spendFromSheet();
-  if (r.error){ $('lg-err').textContent = r.error; $('lg-amt').focus(); return; }
+  if (r.error){ SFX.no(); $('lg-err').textContent = r.error; $('lg-amt').focus(); return; }
+  SFX.ok();
   if (!isIn(r.spend)) store.set('runway-lastcat', r.spend.cat);
   closeSheet();
   queueSpend(r.spend);
@@ -1923,6 +2030,7 @@ function go(p, pushState){
   if (page === 'payments' && p !== 'payments') markSeen();
   if (p !== 'payments') payFilter.m = null;
   if (p !== 'bank' && page === 'bank') bankMsg = '';
+  if (page !== p) SFX.chatter();
   page = p;
   SCREENS.forEach(function(id){ $('s-' + id).hidden = id !== p; });
   if (pushState && location.hash !== '#' + p) history.pushState(null, '', '#' + p);
@@ -1958,6 +2066,7 @@ function render(){
 
   /* Today */
   var now = new Date();
+  SFX.paint();
   $('t-date').textContent = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
   var ci = monthIndexOf(todayStr());
   var env = inRange(ci) ? envelope(ci) : null;
@@ -2501,6 +2610,7 @@ function renderFloat(cur, base){
 /* ─────────────────────────── events ─────────────────────────── */
 
 document.addEventListener('click', function(e){
+  if (e.target.closest('#snd')) return SFX.set(!SFX.isOn());
   var bk = e.target.closest('[data-pin],[data-pinkey],[data-pay],[data-move],[data-scope],[data-pays],[data-bf],[data-kf],[data-connect],[data-disconnect]');
   if (bk){
     e.preventDefault();
