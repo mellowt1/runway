@@ -72,7 +72,7 @@ See `seed.example.json`. A few fields carry weight:
 
 - `months` — the whole forecast is driven by this list. Add a month and every screen follows.
 - `salary.from` and `extras[].from` — the month an amount starts counting, using a `months` key.
-- `bridge` — who covers the stretch below zero, and the two words used for it. The app finds the dip itself and labels it; there is no hardcoded December.
+- `bridge` — who covers a month below zero (`month`), up to how much (`max`), and the words used for it. The forecast adds only what brings that month back to zero; any month still below zero is shown as not covered.
 - `flex` — the sliders on the Adjust sheet. Each needs `min`, `max`, `step` and `plan`.
 
 ## A note on the figures

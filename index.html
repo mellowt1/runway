@@ -879,7 +879,8 @@ function model(st){
     if (A && i === A.ci){
       items = restOfMonth(i, st, subsT);
       items.forEach(function(it){ bal += it.amount; });
-      M.push({ key:m.key, label:m.label, items:items, bal:bal });
+      bal = bridgeIn(m, bal, items);
+      M.push({ key:m.key, label:m.label, items:items, bal:bal, bridged: bridgedIn(items) });
       return;
     }
     if (i === 0){
@@ -906,12 +907,26 @@ function model(st){
       extrasFor(m, st, items);
     }
     items.forEach(function(it){ bal += it.amount; });
-    M.push({ key:m.key, label:m.label, items:items, bal:bal });
+    bal = bridgeIn(m, bal, items);
+    M.push({ key:m.key, label:m.label, items:items, bal:bal, bridged: bridgedIn(items) });
   });
 
   var by = {};
   M.forEach(function(m){ by[m.key] = m; });
   return { M:M, by:by, monthly:monthly, subsT:subsT, end:M[M.length-1].bal, first:first };
+}
+/* The bridge covers one month (bridge.month) and no more than bridge.max: only what
+   it takes to bring that month back to zero. A month still below zero is not covered. */
+function bridgeIn(m, bal, items){
+  var b = PLAN.bridge || {};
+  if (m.key !== b.month || bal >= 0) return bal;
+  var amt = cents(b.max ? Math.min(-bal, b.max) : -bal);
+  items.push({ name: b.label, amount: amt, bridge: true });
+  return bal + amt;
+}
+function bridgedIn(items){
+  var x = items.filter(function(it){ return it.bridge; })[0];
+  return x ? x.amount : 0;
 }
 function afterKey(key, from){
   var order = PLAN.months.map(function(m){ return m.key; });
@@ -1921,9 +1936,10 @@ function render(){
   $('t-cats').innerHTML = env ? (env.spent > 0 ? dailyHtml(env) : '') + catsHtml(env) : '';
 
   var d = dip(cur.M);
+  var br = cur.M.filter(function(m){ return m.bridged; })[0];
   var dipText = d
-    ? cur.M.slice(d.lo, d.hi+1).map(function(m){ return m.label; }).join(' and ') + ': ' + PLAN.bridge.label
-    : 'Never below zero';
+    ? cur.M.slice(d.lo, d.hi+1).filter(function(m){ return m.bal < 0; }).map(function(m){ return m.label; }).join(' and ') + ': below zero, not covered'
+    : br ? br.label + ': ' + PLAN.bridge.label + ' ' + fmt(br.bridged) : 'Never below zero';
   $('t-bank').innerHTML = '<p class="eyebrow ink" style="padding-bottom:4px">Your money</p>' + todayBankHtml(env);
   document.querySelectorAll('[data-sheet="log"]').forEach(function(b){
     if (b.classList.contains('pill')) b.textContent = hasBank() ? 'Enter cash' : 'New entry';
@@ -1952,13 +1968,17 @@ function render(){
 
   var salaryFrom = monthLabel(PLAN.salary.from);
   $('f-grid').innerHTML = '<div class="notes">' +
+      (br ? '<div><span class="eyebrow">' + esc(br.key) + '</span>' +
+        '<p>' + esc(PLAN.bridge.label) + ' ' + esc(fmt(br.bridged)) +
+        (PLAN.bridge.max && br.bridged < PLAN.bridge.max ? ', at most ' + esc(fmt(PLAN.bridge.max)) : '') + '.</p></div>' : '') +
       (d ? '<div><span class="eyebrow over">' + esc(cur.M[d.lo].key + (d.hi > d.lo ? ' — ' + cur.M[d.hi].key : '')) + '</span>' +
-        '<p>Below zero. ' + esc(PLAN.bridge.label) + '.</p></div>' : '') +
+        '<p>Below zero. Not covered.</p></div>' : '') +
       '<div><span class="eyebrow good">From ' + esc(salaryFrom) + '</span>' +
         '<p>Salary returns, ' + esc(fmt(S.salary)) + ' net.</p></div>' +
     '</div>' +
     '<p class="small" style="margin-top:20px">Counts ' + esc(fmt(flexTotal(S))) + ' a month for ' +
-      esc(flexWords()) + '. ' + esc(FORECAST_SPEND_RULE) + '</p>';
+      esc(flexWords()) + '. ' + esc(FORECAST_SPEND_RULE) +
+      (br ? ' ' + esc(PLAN.bridge.by) + '’s ' + esc(fmt(br.bridged)) + ' is in these figures; paying it back is not.' : '') + '</p>';
 
   /* Month */
   $('m-hero').innerHTML = '<p class="lbl">A normal month costs</p>' +
