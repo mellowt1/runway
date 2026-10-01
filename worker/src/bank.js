@@ -7,7 +7,8 @@
  *   bank:<code>    the connections: bank, consent end, accounts, balances, last sync
  *   banktx:<code>  booked transactions from every connected account, newest first
  *   tags:<code>    what the people changed: a payment moved to another bucket, marked
- *                  as not spending, hidden, or flagged; and payee rules ("always")
+ *                  as not spending, hidden, or flagged; payee rules ("always"); and
+ *                  which account is the pocket for which everyday budget (acct)
  *
  * The bank is the record: nothing here edits an amount or a date. Pending movements
  * are left out until they book. Money moved between two connected accounts (same
@@ -23,7 +24,7 @@
  *   GET    /api/bank/callback                             the bank sends the browser back here
  *   POST   /api/bank/:code/sync                           sync now (at most every ten minutes)
  *   POST   /api/bank/:code/disconnect  <- { conn }        ends the consent at the bank too
- *   POST   /api/tag/:code              <- { by, id, b, ns, hide, flag } | { by, payee, b }
+ *   POST   /api/tag/:code              <- { by, id, b, ns, hide, flag } | { by, payee, b } | { by, acct, pocket }
  *
  * The bank routes need header X-Runway-Key. A cron syncs every code four times a day,
  * the most banks allow without the person present.
@@ -561,8 +562,18 @@ async function handleTag(request, env, code, json) {
   const doc = (await read(env, key)) || { pay: {}, payee: {}, rev: 0 };
   doc.pay = doc.pay || {};
   doc.payee = doc.payee || {};
+  doc.acct = doc.acct || {};
 
-  if (typeof body.payee === 'string') {
+  if (typeof body.acct === 'string') {
+    // An account key (from publicMeta) and the plan's flex id it holds the money for.
+    if (!/^[0-9a-f]{10}$/.test(body.acct)) return json({ error: 'bad account' }, 400);
+    if (body.pocket === null) delete doc.acct[body.acct];
+    else if (typeof body.pocket === 'string' && /^[a-z0-9]{1,16}$/.test(body.pocket)) {
+      // One account per budget: linking a budget elsewhere unlinks it here.
+      for (const k of Object.keys(doc.acct)) if (doc.acct[k].p === body.pocket) delete doc.acct[k];
+      doc.acct[body.acct] = { p: body.pocket, by, at };
+    } else return json({ error: 'bad pocket' }, 400);
+  } else if (typeof body.payee === 'string') {
     const p = payeeKey(body.payee);
     if (!p) return json({ error: 'payee required' }, 400);
     if (body.b === null) delete doc.payee[p];

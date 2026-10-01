@@ -439,6 +439,8 @@ input[type=range]::-moz-range-thumb{border-radius:0}
 .acts .ghost{border:2px solid var(--ink)}
 .acts .solid{text-shadow:none}
 select{font:400 22px var(--serif)}
+.pocket{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 0 12px}
+.pocket select{width:auto;min-width:150px;margin:0}
 .plist li{font:400 22px/1.15 var(--serif)}
 details summary{font:400 20px var(--serif);text-transform:uppercase}
 details p{font:400 21px/1.2 var(--serif)}
@@ -750,17 +752,24 @@ function envelope(i, st){
   });
   /* Everyday payments from the bank count against the same envelope as cash. They
      go into the daily chart as entries of their own, never into the cash list. */
-  var bankDays = [], bank = 0;
+  var bankDays = [], bank = 0, outside = 0;
   bankIn(i).forEach(function(c){
     if (!c.counts || c.b !== 'everyday') return;
     bank += c.out;
+    if (c.pocket && byId[c.pocket]){ byId[c.pocket].spent += c.out; byId[c.pocket].card = (byId[c.pocket].card || 0) + c.out; }
+    else outside += c.out;
     bankDays.push({ d: c.t.d, amt: c.out });
     if (c.t.d === today) todaySpent += c.out;
   });
   bank = cents(bank);
+  /* With a pocket linked, what is left of a budget is simply what the pocket holds. */
+  var pockets = 0, pocketLeft = 0;
   cats.forEach(function(c){
     c.spent = cents(c.spent);
     c.left = c.budget === null ? null : cents(c.budget - c.spent);
+    var pa = hasBank() ? pocketAcct(c.id) : null;
+    if (pa && pa.a.bal !== null && pa.a.bal !== undefined){ c.left = cents(pa.a.bal); c.inPocket = true; pockets++; }
+    pocketLeft += c.left || 0;
   });
   /* st.sept is the old single "spent" number; normally 0, still honoured. */
   var legacy = i === 0 ? (Number(st.sept) || 0) : 0;
@@ -773,7 +782,7 @@ function envelope(i, st){
   return {
     index:i, label: PLAN.months[i] ? PLAN.months[i].label : '', first:b.first, last:b.last,
     budget:budget, income:income, total:total, spent:spent, logged:cents(logged), legacy:legacy, other:cents(other),
-    bank:bank, left:left, daysLeft:daysLeft, perDay: left > 0 && daysLeft > 0 ? left / daysLeft : null,
+    bank:bank, outside:cents(outside), pockets:pockets, pocketLeft:cents(pocketLeft), left:left, daysLeft:daysLeft, perDay: left > 0 && daysLeft > 0 ? left / daysLeft : null,
     todaySpent:cents(todaySpent), count:all.length, cats:cats, list:list.concat(bankDays), entries:all
   };
 }
@@ -1235,12 +1244,25 @@ function classify(t){
      Money in, savings and big payments still to sort count nowhere. */
   c.counts = !c.hidden && !c.ns && c.b !== 'in' && c.b !== 'save' && c.b !== 'check';
   c.out = -t.amt;
+  c.pocket = pocketOfAcct(t.k);
   return c;
 }
 function classified(){
   if (!CL) CL = txList().map(classify);
   return CL;
 }
+/* The pockets: an account (by key) that holds the money for one everyday budget.
+   Linked on the Bank screen, kept in tags.acct, so they sit behind the PIN too. */
+function pocketOfAcct(k){
+  var a = (tags().acct || {})[k];
+  return a && PLAN.flex.some(function(f){ return f.id === a.p; }) ? a.p : null;
+}
+function pocketAcct(flexId){
+  var ac = tags().acct || {}, k = Object.keys(ac).filter(function(x){ return ac[x].p === flexId; })[0];
+  return k ? accountOf(k) : null;
+}
+function hasPockets(){ return hasBank() && PLAN.flex.some(function(f){ return pocketAcct(f.id); }); }
+
 /* Payments counted in month i; month 0 only from PLAN.asOf, like spendsIn(). */
 function bankIn(i){
   if (!hasBank()) return [];
@@ -1304,7 +1326,14 @@ function applyTag(body){
   var tg = BANK.tags = BANK.tags || { pay:{}, payee:{} };
   tg.pay = tg.pay || {}; tg.payee = tg.payee || {};
   var by = ME || null, at = new Date().toISOString();
-  if (typeof body.payee === 'string'){
+  if (typeof body.acct === 'string'){
+    var ac = tg.acct = tg.acct || {};
+    if (body.pocket === null) delete ac[body.acct];
+    else {
+      Object.keys(ac).forEach(function(k){ if (ac[k].p === body.pocket) delete ac[k]; });
+      ac[body.acct] = { p: body.pocket, by: by, at: at };
+    }
+  } else if (typeof body.payee === 'string'){
     var p = payeeKey(body.payee);
     if (body.b === null) delete tg.payee[p]; else tg.payee[p] = { b: body.b, by: by, at: at };
   } else {
@@ -1320,6 +1349,10 @@ function applyTag(body){
 /* The body that puts one payment's tag, or one payee rule, back as it is now. */
 function undoFor(body){
   var tg = tags();
+  if (typeof body.acct === 'string'){
+    var was = (tg.acct || {})[body.acct];
+    return { acct: body.acct, pocket: was ? was.p : null };
+  }
   if (typeof body.payee === 'string'){
     var r = tg.payee[payeeKey(body.payee)];
     return { payee: body.payee, b: r ? r.b : null };
@@ -2111,6 +2144,7 @@ function inWords(n){ return n <= 20 ? WORDS[n] : String(n); }
 
 /* The figure, then the sentence that says what it is. */
 function heroHtml(e){
+  if (e.pockets && e.index > 0) return pocketHeroHtml(e);
   var over = e.left < 0;
   var fig = fmtAmt(Math.abs(e.left));
   var days = e.daysLeft > 0
@@ -2131,6 +2165,26 @@ function heroHtml(e){
       paceCell +
     '</div>' + statusHtml();
 }
+/* With the pockets linked the figure is what they hold, not a sum worked out. */
+function pocketHeroHtml(e){
+  var left = e.pocketLeft, over = left < 0, fig = fmtAmt(Math.abs(left));
+  var days = e.daysLeft > 0
+    ? 'with <b>' + inWords(e.daysLeft) + (e.daysLeft === 1 ? ' day' : ' days') + '</b> to go'
+    : 'and the month is over';
+  var all = e.pockets === e.cats.length;
+  var fromPockets = cents(e.cats.reduce(function(t, c){ return t + (c.card || 0); }, 0));
+  return '<p class="eyebrow ink">Everyday spending · ' + esc(e.label) + '</p>' +
+    '<p class="fig-xl' + (fig.length > 6 ? ' long' : '') + (over ? ' over' : '') + '" style="margin-top:10px">' + esc(fig) + '</p>' +
+    '<p class="deck">' + (over ? 'short ' : 'left ') + (all ? 'in your ' + esc(andList(PLAN.flex.map(function(f){ return f.label; }))) + ' pockets' : 'for ' + esc(flexWords())) +
+      ', ' + days + '.</p>' +
+    '<div class="stats">' +
+      '<div><span class="v">' + (left > 0 && e.daysLeft > 0 ? esc(fmtAmt(cents(left / e.daysLeft))) : '—') + '</span>' +
+        '<span class="k">a day you can spend</span></div>' +
+      '<div><span class="v">' + esc(fmtAmt(fromPockets)) + '</span><span class="k">paid from the pockets this month</span></div>' +
+    '</div>' +
+    (e.outside > 0 ? '<p class="status warn">' + esc(fmtAmt(e.outside)) + ' went on everyday things from the main account, not a pocket.</p>' : '') +
+    statusHtml();
+}
 /* "food, going out and misc", from the plan's flex lines. */
 function flexWords(){ return andList(PLAN.flex.map(function(f){ return f.label.toLowerCase(); })); }
 
@@ -2139,6 +2193,7 @@ function bare(v){ return fmtAmt(v).replace(CUR, ''); }
 
 function catsHtml(e){
   var first = e.index === 0;
+  var totalLeft = e.pockets && !first ? e.pocketLeft : e.left;
   var rows = e.cats.map(function(c){
     return '<div class="lg-r"><span>' + esc(c.label) + '</span>' +
       '<span class="b">' + (first ? '—' : esc(bare(c.budget))) + '</span>' +
@@ -2146,14 +2201,15 @@ function catsHtml(e){
       '<span' + (!first && c.left < 0 ? ' class="over"' : '') + '>' + (first ? '—' : esc(bare(c.left))) + '</span></div>';
   }).join('');
   if (e.other) rows += '<div class="lg-r"><span>Other</span><span class="b">—</span><span>' + esc(bare(e.other)) + '</span><span>—</span></div>';
-  if (hasBank()) rows += '<div class="lg-r"><span>Card &amp; bank</span><span class="b">—</span><span>' + esc(bare(e.bank)) + '</span><span>—</span></div>';
+  if (hasBank()) rows += '<div class="lg-r"><span>' + (e.pockets ? 'Not from a pocket' : 'Card &amp; bank') + '</span><span class="b">—</span><span>' +
+    esc(bare(e.pockets ? e.outside : e.bank)) + '</span><span>—</span></div>';
   if (e.legacy) rows += '<div class="lg-r"><span>Earlier</span><span class="b">—</span><span>' + esc(bare(e.legacy)) + '</span><span>—</span></div>';
   if (e.income) rows += '<div class="lg-r"><span>Money in</span><span class="good">+' + esc(bare(e.income)) + '</span><span>—</span><span>—</span></div>';
   return '<div class="ledger">' +
-    '<div class="lg-h"><span>' + (first ? 'Since ' + esc(shortDate(PLAN.asOf)) : '') + '</span><span>BUDGET</span><span>SPENT</span><span>LEFT</span></div>' +
+    '<div class="lg-h"><span>' + (first ? 'Since ' + esc(shortDate(PLAN.asOf)) : '') + '</span><span>BUDGET</span><span>SPENT</span><span>' + (e.pockets && !first ? 'IN POCKET' : 'LEFT') + '</span></div>' +
     rows +
     '<div class="lg-r total"><span>Total</span><span class="b">' + esc(bare(e.total)) + '</span>' +
-      '<span>' + esc(bare(e.spent)) + '</span><span' + (e.left < 0 ? ' class="over"' : '') + '>' + esc(bare(e.left)) + '</span></div>' +
+      '<span>' + esc(bare(e.spent)) + '</span><span' + (totalLeft < 0 ? ' class="over"' : '') + '>' + esc(bare(totalLeft)) + '</span></div>' +
     (hasBank() ? '<button class="link" data-pays="everyday"><span>Everyday payments this month</span>' +
       '<span class="n">' + bankIn(e.index).filter(function(c){ return c.counts && c.b === 'everyday'; }).length + ' ›</span></button>' : '') +
     '<button class="link" data-go="spends"><span>' +
@@ -2197,6 +2253,8 @@ function todayBankHtml(env){
     return '<button class="row" data-go="bank" style="padding-top:0"><span class="grow"><b>In the bank</b>' +
         '<span class="sub">' + esc(names + ' · ' + (warn ? 'needs attention' : when)) + '</span></span>' +
         '<span class="amt">' + (total === null ? '—' : esc(fmt(total))) + '</span><span class="chev">›</span></button>' +
+      (hasPockets() ? '' : '<button class="row" data-go="bank"><span class="grow"><b>Link the pockets</b>' +
+        '<span class="sub">Say which account is ' + esc(flexWords()) + '</span></span><span class="chev">›</span></button>') +
       '<button class="row" data-pays="' + (toSort ? 'check' : 'all') + '"><span class="grow"><b>Payments</b>' +
         '<span class="sub">' + esc(toSort ? toSort + (toSort === 1 ? ' big payment' : ' big payments') + ' to sort'
           : fresh ? fresh + ' new since you last looked' : (env ? monthN + ' in ' + env.label : 'from the bank')) + '</span></span>' +
@@ -2268,9 +2326,11 @@ function bankScreenHtml(){
         (note.text ? '<p class="status' + (note.warn ? ' warn' : '') + '" style="margin-top:4px">' + esc(note.text) + '</p>' : '') +
         (c.accounts || []).map(function(a){
           var other = a.cur && a.cur !== 'EUR';
-          return '<div class="row' + (other ? ' off' : '') + '"><span class="grow"><b>' + esc(a.name || 'Account') + '</b>' +
-            '<span class="sub">' + (a.iban4 ? '•• ' + esc(a.iban4) : '') + (other ? ' · ' + esc(a.cur) + ', not counted' : '') + '</span></span>' +
-            '<span class="amt">' + (a.bal === null || a.bal === undefined ? '—' : other ? esc(a.bal + ' ' + a.cur) : esc(fmt(a.bal, true))) + '</span></div>';
+          var pk = PLAN.flex.filter(function(x){ return x.id === pocketOfAcct(a.k); })[0];
+          return '<div class="row' + (other ? ' off' : '') + '"><span class="grow"><b>' + esc(pk ? pk.label + ' pocket' : a.name || 'Account') + '</b>' +
+            '<span class="sub">' + esc([pk ? a.name : '', a.iban4 ? '•• ' + a.iban4 : '', other ? a.cur + ', not counted' : ''].filter(Boolean).join(' · ')) + '</span></span>' +
+            '<span class="amt">' + (a.bal === null || a.bal === undefined ? '—' : other ? esc(a.bal + ' ' + a.cur) : esc(fmt(a.bal, true))) + '</span></div>' +
+            (other ? '' : pocketPickHtml(a));
         }).join('') +
         '<div class="acts">' + (note.warn ? '<button class="solid" data-connect="' + esc(c.bank) + '" data-country="' + esc(c.country) + '">Reconnect</button>' : '') +
           '<button class="ghost" data-disconnect="' + esc(c.id) + '">Disconnect</button></div></div>';
@@ -2285,6 +2345,17 @@ function bankScreenHtml(){
     '<button class="textbtn" data-act="forget">Forget this phone</button>' +
     '<p class="small" style="margin-top:8px">Account information only: balances and booked payments. Nothing in Runway can move money.</p></div>';
   return html;
+}
+
+/* Which everyday budget this account is the pocket for. Identical account names are
+   common (Revolut names every pocket after its holder), so the balance beside it is
+   how to tell them apart. */
+function pocketPickHtml(a){
+  var cur = pocketOfAcct(a.k);
+  return '<label class="pocket"><span class="sub">Pocket for</span><select data-acct="' + esc(a.k) + '" aria-label="Pocket for">' +
+    '<option value="">nothing</option>' + PLAN.flex.map(function(f){
+      return '<option value="' + esc(f.id) + '"' + (cur === f.id ? ' selected' : '') + '>' + esc(f.label) + '</option>';
+    }).join('') + '</select></label>';
 }
 
 function bankPickerHtml(){
@@ -2571,6 +2642,11 @@ document.addEventListener('change', function(e){
     var body = { id: c.t.id }; body[el.dataset.tog] = el.checked;
     var words = { ns: ['Not spending', 'Counts as spending again'], hide: ['Hidden', 'Counted again'], flag: ['Flagged', 'Flag removed'] }[el.dataset.tog];
     return tagWrite([body], (c.t.who || 'Payment') + ': ' + (el.checked ? words[0] : words[1]).toLowerCase());
+  }
+  if (el.dataset && el.dataset.acct){
+    var fl = PLAN.flex.filter(function(x){ return x.id === el.value; })[0];
+    return tagWrite([{ acct: el.dataset.acct, pocket: el.value || null }],
+      fl ? 'Linked as the ' + fl.label + ' pocket' : 'Pocket unlinked');
   }
   if (el.id === 'bank-country'){ bankCountry = el.value; bankQuery = ''; return loadBanks(); }
   if (el.dataset && el.dataset.task){
