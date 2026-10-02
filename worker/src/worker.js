@@ -12,8 +12,11 @@
  *           purpose: state is whole-document last-writer-wins, so a slider moved on a
  *           stale page must never be able to erase a logged spend, and "back to the
  *           plan" resets the what-ifs, never the facts.
+ *   manual  newer balances for the accounts the plan lists as entered by hand (a
+ *           savings account no bank connection covers), typed in by the reader. Also
+ *           a fact, so also out of reach of "back to the plan".
  *
- * Anyone with the code can read all three and write state and spends. That is the
+ * Anyone with the code can read all of them and write state, spends and manual. That is the
  * point: one person sends the other a link, the other moves a slider, and the next
  * poll on the first phone shows it. No accounts. No figures in the repo.
  *
@@ -23,13 +26,14 @@
  *   DELETE /api/state/:code        <- { by }              -> { ok, updated, rev }   back to the plan
  *   POST   /api/spend/:code        <- { by, spend }       -> { ok, spend, rev }     upsert by spend.id
  *   DELETE /api/spend/:code/:id    <- { by }              -> { ok, removed, rev }
+ *   POST   /api/manual/:code       <- { by, id, bal, asOf } -> { ok, entry, rev }
  *
  * Alerts (Web Push) are in alerts.js.
  *
  * The plan GET also carries `bank: { pin, conns, rev }` so a phone knows when to fetch
  * the bank side. That side (a PIN, the bank connections, the sync) is in bank.js.
  *
- * State and spends each keep their own `rev`, bumped on every write. The plan GET
+ * State, spends and manual each keep their own `rev`, bumped on every write. The plan GET
  * returns their sum: both only ever increase, so the sum still tells a client
  * "something changed" cheaply. The POST/DELETE responses carry their own doc's rev.
  */
@@ -49,6 +53,8 @@ const MAX_STATE = 8000;
 const MAX_SPENDS = 1500;
 const SPEND_ID = /^[a-z0-9]{6,16}$/;
 const SPEND_CAT = /^[a-z0-9_-]{1,24}$/;
+const MANUAL_ID = /^[a-z0-9_-]{1,24}$/;
+const MAX_MANUAL = 12;
 
 function cors(request) {
   const o = request.headers.get('Origin') || '';
@@ -143,6 +149,7 @@ async function handlePlan(request, env, code) {
     if (!plan) return json({ error: 'no plan for this code' }, request, 404);
     const st = (await readDoc(env, `state:${code}`)) || {};
     const sp = (await readDoc(env, `spends:${code}`)) || {};
+    const md = (await readDoc(env, `manual:${code}`)) || {};
     const bank = await bankSummary(env, code);
     return json(
       {
@@ -150,8 +157,9 @@ async function handlePlan(request, env, code) {
         state: st.state || null,
         updated: st.updated || null,
         by: st.by || null,
-        rev: (st.rev || 0) + (sp.rev || 0),
+        rev: (st.rev || 0) + (sp.rev || 0) + (md.rev || 0),
         spends: Array.isArray(sp.list) ? sp.list : [],
+        manual: md.set || {},
         bank,
       },
       request
@@ -264,6 +272,29 @@ async function handleSpend(request, env, code, id) {
   return json({ error: 'method' }, request, 405);
 }
 
+// A newer balance for one hand-entered account. The plan says which accounts exist;
+// this only carries what the reader typed, keyed by the plan's account id.
+async function handleManual(request, env, code) {
+  if (request.method !== 'POST') return json({ error: 'method' }, request, 405);
+  const key = `manual:${code}`;
+  const body = await request.json().catch(() => null);
+  const by = cleanBy(body && body.by);
+  const id = String((body && body.id) || '');
+  const bal = Math.round(Number(body && body.bal) * 100) / 100;
+  const asOf = String((body && body.asOf) || '');
+  if (!MANUAL_ID.test(id)) return json({ error: 'bad id' }, request, 400);
+  if (!Number.isFinite(bal) || bal < 0 || bal >= 1e7) return json({ error: 'bad balance' }, request, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return json({ error: 'bad date' }, request, 400);
+  const prev = (await readDoc(env, key)) || {};
+  const set = Object.assign({}, prev.set || {});
+  if (!set[id] && Object.keys(set).length >= MAX_MANUAL) return json({ error: 'too many accounts' }, request, 413);
+  const entry = { bal, asOf, by: by || null, at: new Date().toISOString() };
+  set[id] = entry;
+  const rec = { set, rev: (prev.rev || 0) + 1 };
+  await env.RUNWAY_KV.put(key, JSON.stringify(rec), { expirationTtl: TTL });
+  return json({ ok: true, entry, rev: rec.rev }, request);
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
@@ -290,6 +321,13 @@ export default {
       const code = sp[1].toLowerCase();
       if (!CODE.test(code)) return json({ error: 'bad code' }, request, 400);
       return handleSpend(request, env, code, sp[2] ? sp[2].toLowerCase() : null);
+    }
+
+    const mn = url.pathname.match(/^\/api\/manual\/([a-z0-9]+)$/i);
+    if (mn) {
+      const code = mn[1].toLowerCase();
+      if (!CODE.test(code)) return json({ error: 'bad code' }, request, 400);
+      return handleManual(request, env, code);
     }
 
     const reply = (data, status = 200) => json(data, request, status);

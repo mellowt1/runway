@@ -663,6 +663,7 @@ var S = null;         // what is on screen now
 var BASE = null;      // the plan's own defaults, to compare against
 var REMOTE = { rev:0, by:null, updated:null };
 var SPENDS = [];      // logged spends as the Worker last returned them
+var MANUAL = {};      // newer balances typed in for the hand-entered accounts, by account id
 var OUTBOX = [];      // spend writes not yet acknowledged: { op:'put', spend, by } | { op:'del', id }
 var sending = false, sendFailed = false, refused = 0;
 var page = 'today';
@@ -1030,7 +1031,7 @@ function dip(M){
 function cacheKey(){ return 'runway-cache-' + CODE; }
 function outboxKey(){ return 'runway-outbox-' + CODE; }
 function saveCache(state){
-  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS });
+  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS, manual:MANUAL });
 }
 
 function applyRemote(data){
@@ -1042,6 +1043,7 @@ function applyRemote(data){
   incoming.tasks = (data.state && data.state.tasks) || {};
   S = incoming;
   SPENDS = Array.isArray(data.spends) ? data.spends : [];
+  MANUAL = data.manual && typeof data.manual === 'object' ? data.manual : {};
   if (data.bank) BANKINFO = data.bank;
   MATCH = null; CL = null;
   saveCache(data.state);
@@ -1363,7 +1365,14 @@ function accountOf(k){
 }
 function bankShort(name){ return String(name || '').replace(/\s+(Bank|N\.?V\.?|UAB)$/i, ''); }
 /* Accounts the bank sync cannot see, entered by hand in the plan (bank.manual). */
-function manualAccounts(){ return (PLAN && PLAN.bank && PLAN.bank.manual) || []; }
+/* The plan lists the hand-entered accounts; a balance typed in the app replaces the
+   plan's figure until the owner seeds a newer one. */
+function manualAccounts(){
+  return ((PLAN && PLAN.bank && PLAN.bank.manual) || []).map(function(m){
+    var o = m.id && MANUAL[m.id];
+    return o && (!m.asOf || o.asOf >= m.asOf) ? Object.assign({}, m, { bal:o.bal, asOf:o.asOf, by:o.by || null }) : m;
+  });
+}
 /* A hand-entered savings balance moves with the transfers the bank shows after its
    date: money put aside at the same bank adds to it, money taken out of savings into
    a connected account comes off it. Otherwise a standing order out of savings would
@@ -1379,13 +1388,14 @@ function savingsMoves(m){
   }, 0));
 }
 function manualBal(m){ return cents(Number(m.bal) + savingsMoves(m)); }
+/* Each hand-entered account is a row to tap: it opens a sheet to type today's balance. */
 function manualRowsHtml(){
   return manualAccounts().map(function(m){
-    var moved = savingsMoves(m);
-    return '<div class="row"><span class="grow"><b>' + esc(m.name) + '</b><span class="sub">' +
-      esc((m.bank ? m.bank + ' · ' : '') + 'entered by hand' + (m.asOf ? ', ' + shortDate(m.asOf) : '') +
+    var moved = savingsMoves(m), tag = m.id ? 'button' : 'div';
+    return '<' + tag + ' class="row"' + (m.id ? ' data-man="' + esc(m.id) + '"' : '') + '><span class="grow"><b>' + esc(m.name) + '</b><span class="sub">' +
+      esc((m.bank ? m.bank + ' · ' : '') + 'entered by hand' + (m.asOf ? ', ' + shortDate(m.asOf) : '') + (m.by ? ' by ' + m.by : '') +
         (moved ? ' · ' + (moved > 0 ? '+' : '−') + fmt(Math.abs(moved)) + ' moved since' : '')) + '</span></span>' +
-      '<span class="amt">' + esc(fmt(manualBal(m))) + '</span></div>';
+      '<span class="amt">' + esc(fmt(manualBal(m))) + '</span>' + (m.id ? '<span class="chev">›</span>' : '') + '</' + tag + '>';
   }).join('');
 }
 function inTheBank(){
@@ -2005,7 +2015,7 @@ document.addEventListener('pointerdown', function(e){
 
 /* ─────────────────────────── the sheet ─────────────────────────── */
 
-var sheetKind = null, draft = null, lastFocus = null, logDraft = null;
+var sheetKind = null, draft = null, lastFocus = null, logDraft = null, manDraft = null;
 
 function openSheet(kind){
   SFX.readout();
@@ -2018,7 +2028,7 @@ function openSheet(kind){
   $('scrim').classList.add('open');
   $('sheet').classList.add('open');
   document.body.style.overflow = 'hidden';
-  var f = kind === 'log' ? $('lg-amt') : $('sheet').querySelector('input,select,button');
+  var f = kind === 'log' || kind === 'manual' ? $('lg-amt') : $('sheet').querySelector('input,select,button');
   if (f) f.focus();
 }
 function closeSheet(){
@@ -2130,6 +2140,27 @@ function renderSheet(){
       }).join('') + '</div>' +
       '<p class="err" id="lg-err" role="alert"></p>' +
       '<button class="enter" data-act="save-spend">' + (received ? 'Enter money in' : 'Enter in the ledger') + '</button>';
+  }
+
+  else if (sheetKind === 'manual'){
+    var mm = manualAccounts().filter(function(x){ return x.id === manDraft.id; })[0];
+    if (!mm){ html = '<h2 id="sheet-title">Gone</h2><p class="hint">This account is no longer in the plan.</p>'; }
+    else {
+      var mk = ['1','2','3','4','5','6','7','8','9','.','0','del'];
+      html = '<div class="lg-head"><button class="cancel" data-act="cancel">Cancel</button>' +
+          '<h2 id="sheet-title">' + esc(mm.name) + '</h2>' +
+          '<span class="date">' + esc(shortDate(todayStr())) + '</span></div>' +
+        '<p class="hint">What ' + esc(mm.bank ? 'the ' + mm.bank + ' app' : 'your banking app') + ' shows for ' + esc(mm.name.toLowerCase()) +
+          ' today. Now ' + esc(fmt(manualBal(mm))) + '.</p>' +
+        '<div class="lg-amt"><input id="lg-amt" type="text" inputmode="none" autocomplete="off" enterkeyhint="done" placeholder="' +
+          esc(CUR) + '0" aria-label="Balance today"></div>' +
+        '<div class="pad">' + mk.map(function(k){
+          return '<button type="button" data-key="' + k + '" aria-label="' + (k === 'del' ? 'Delete' : k === '.' ? 'Decimal point' : k) + '">' +
+            (k === 'del' ? '⌫' : k) + '</button>';
+        }).join('') + '</div>' +
+        '<p class="err" id="lg-err" role="alert"></p>' +
+        '<button class="enter" data-act="save-manual">Save the balance</button>';
+    }
   }
 
   else if (sheetKind === 'pin'){
@@ -2292,6 +2323,27 @@ function spendFromSheet(){
   if (note) s.note = note;
   return { spend:s };
 }
+/* A hand-entered balance goes straight to the Worker; the sheet stays open until it
+   has landed, so a failed save is never mistaken for a kept one. */
+async function saveManual(){
+  var el = $('lg-amt'), err = $('lg-err');
+  var v = cents(parseAmount(el ? el.value : ''));
+  if (!el || !el.value || !isFinite(v) || v < 0 || v >= 1e7){ SFX.no(); err.textContent = 'Type the balance, for example 10080.'; return; }
+  var id = manDraft.id, body = { by: ME || null, id: id, bal: v, asOf: todayStr() };
+  err.textContent = 'saving…';
+  var res = null;
+  try {
+    res = await fetch(API + '/api/manual/' + CODE, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  } catch(e){ res = null; }
+  if (sheetKind !== 'manual') return;
+  if (!res || !res.ok){ SFX.no(); err.textContent = 'That did not save. Check the connection and try again.'; return; }
+  SFX.ok();
+  MANUAL[id] = { bal: v, asOf: body.asOf, by: body.by };
+  saveCache(stateForCache());
+  closeSheet();
+  render();
+}
+
 function saveSpend(){
   var r = spendFromSheet();
   if (r.error){ SFX.no(); $('lg-err').textContent = r.error; $('lg-amt').focus(); return; }
@@ -3140,8 +3192,10 @@ document.addEventListener('click', function(e){
     if (d.disconnect) return disconnectBank(d.disconnect);
     return;
   }
-  var b = e.target.closest('[data-go],[data-sheet],[data-back],[data-open],[data-act],[data-cat],[data-day],[data-del],[data-key],[data-dir]');
+  var b = e.target.closest('[data-go],[data-sheet],[data-back],[data-open],[data-act],[data-cat],[data-day],[data-del],[data-key],[data-dir],[data-man]');
   if (!b) return;
+  if (b.dataset.man){ e.preventDefault(); manDraft = { id: b.dataset.man }; return openSheet('manual'); }
+  if (b.dataset.act === 'save-manual'){ e.preventDefault(); return saveManual(); }
   if (b.dataset.act === 'pin-go'){ e.preventDefault(); return pinSubmit(); }
   if (b.dataset.act === 'undo-tag'){ e.preventDefault(); var u = undoTag; if (u) tagWrite(u.bodies, '', true); return; }
   if (b.dataset.act === 'sync'){ e.preventDefault(); return syncNow(); }
@@ -3216,6 +3270,10 @@ $('sheet').addEventListener('keydown', function(e){
   if (sheetKind === 'log' && e.key === 'Enter' && (e.target.id === 'lg-amt' || e.target.id === 'lg-note')){
     e.preventDefault();
     saveSpend();
+  }
+  if (sheetKind === 'manual' && e.key === 'Enter' && e.target.id === 'lg-amt'){
+    e.preventDefault();
+    saveManual();
   }
 });
 $('sheet').addEventListener('input', function(e){
@@ -3331,7 +3389,7 @@ async function start(){
 
   var cached = store.get(cacheKey());
   if (cached && cached.plan){
-    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends });
+    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends, manual:cached.manual });
     $('boot').hidden = true; $('app').hidden = false;
     go(location.hash.slice(1) || 'today', false);
   }
