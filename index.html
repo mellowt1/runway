@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Runway</title>
 <meta name="description" content="What is left, what is coming, and what to do next.">
-<meta name="theme-color" content="#021006">
+<meta name="theme-color" content="#07130c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -16,14 +16,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap">
 <style>
-/* MU-TH-UR 6000: phosphor on a CRT, always dark. The ledger's rules below
+/* MU-TH-UR 6000: phosphor on a CRT, always dark, in a soft green with a low glow. The ledger's rules below
    still set the layout; the MU-TH-UR block at the end of this sheet re-sets
    type and surfaces. "--serif" is the terminal face (VT323) for figures and
    words, "--sans" the small mono that labels them. Alert is amber, never red. */
 :root{
-  --ground:#021006; --ink:#7dff7a; --ink-2:#6be068; --muted:#4fae4d; --rule:#16461c;
-  --press:#0a2a10; --green:#d8ffd2; --over:#ffb347; --on-ink:#021006;
-  --glow:rgba(125,255,122,.45);
+  --ground:#07130c; --ink:#a8e6a1; --ink-2:#98d192; --muted:#6e9a6b; --rule:#223524;
+  --press:#0f2416; --green:#e2f7de; --over:#eeb868; --on-ink:#07130c;
+  --glow:rgba(168,230,161,.3);
   --serif:"VT323",ui-monospace,Menlo,monospace;
   --sans:"Share Tech Mono",ui-monospace,Menlo,monospace;
   color-scheme:dark;
@@ -420,10 +420,10 @@ button.row:hover b{font-style:normal}
 .tabs em{display:block;order:-1;width:6px;height:6px;border-radius:50%;background:#8a8577}
 .tabs button[aria-current="page"]{color:#1c1c1a;font-style:normal;transform:translateY(3px);
   box-shadow:0 1px 0 #9d978a,inset 0 2px 0 #fbf8ef}
-.tabs button[aria-current="page"] em{background:#3fd23c;box-shadow:0 0 6px #7dff7a}
+.tabs button[aria-current="page"] em{background:#7fc27a;box-shadow:0 0 6px #a8e6a1}
 
-.float{bottom:calc(100px + env(safe-area-inset-bottom,0px));background:#021006;color:var(--ink);
-  border:2px solid var(--ink);border-radius:0;box-shadow:0 0 22px rgba(125,255,122,.22)}
+.float{bottom:calc(100px + env(safe-area-inset-bottom,0px));background:#07130c;color:var(--ink);
+  border:2px solid var(--ink);border-radius:0;box-shadow:0 0 22px rgba(168,230,161,.22)}
 .float .was{font:400 18px var(--serif)}
 .float .now{font:400 26px var(--serif)}
 .float .undo-msg{font:400 22px var(--serif)}
@@ -431,7 +431,7 @@ button.row:hover b{font-style:normal}
   font:400 12px var(--sans);letter-spacing:.14em;text-transform:uppercase}
 
 .scrim{background:rgba(0,0,0,.6)}
-.sheet{background:#031409;border-top:2px solid var(--ink);border-radius:0;box-shadow:0 -10px 40px rgba(125,255,122,.12)}
+.sheet{background:#0a170f;border-top:2px solid var(--ink);border-radius:0;box-shadow:0 -10px 40px rgba(168,230,161,.12)}
 .grab{background:var(--muted);border-radius:0}
 .sheet h2{font:400 40px/1 var(--serif);text-transform:uppercase}
 .stop label{font:400 24px var(--serif)}
@@ -515,6 +515,63 @@ details p{font:400 21px/1.2 var(--serif)}
 .boot p{font:400 24px/1.15 var(--serif)}
 .boot input{font:400 30px var(--serif)}
 .boot .solid{border-radius:0;text-shadow:none;font:400 13px var(--sans);letter-spacing:.2em;text-transform:uppercase}
+
+/* ───────────── Organised ─────────────
+   Every screen reads the same way: one figure on top with a line under it, rows in
+   groups with their subtotal, a dotted leader between a name and its value, amber
+   only when something needs doing, and the rest behind a › or a sheet. */
+.o-top{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;margin-bottom:14px}
+.o-top > span:last-child{display:flex;gap:14px;white-space:nowrap}
+.o-top #hum{margin-left:0}
+.o-eb{font:400 13px var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.o-big{font:400 96px/.86 var(--serif);margin-top:6px;white-space:nowrap;text-transform:uppercase}
+.o-big.long{font-size:72px}
+.o-big.over{color:var(--over)}
+.o-line{font:400 24px/1.1 var(--serif);color:var(--muted);margin-top:6px;text-transform:uppercase}
+.o-key{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border:2px solid var(--ink);border-radius:0;
+  background:none;color:var(--ink);font:400 22px var(--serif);text-transform:uppercase;text-decoration:none}
+.o-key:active{background:var(--ink);color:var(--ground);text-shadow:none}
+.o-entry{position:sticky;bottom:calc(100px + env(safe-area-inset-bottom,0px));z-index:5;width:100%;margin-top:24px;
+  background:var(--ground);font-size:26px;letter-spacing:.06em}
+.o-amb{display:flex;align-items:baseline;gap:8px;width:100%;min-height:44px;margin-top:14px;padding:8px 10px 6px;border:2px solid var(--over);
+  border-radius:0;background:none;color:var(--over);font:400 24px/1.1 var(--serif);text-align:left;text-transform:uppercase;
+  text-shadow:0 0 7px rgba(238,184,104,.3)}
+.o-amb .lead{flex-grow:1;min-width:12px;border-bottom:2px dotted rgba(238,184,104,.35);transform:translateY(-7px)}
+.o-grp{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:20px 0 3px;border-bottom:2px dashed var(--rule);
+  font:400 13px var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.o-row{position:relative;display:flex;align-items:baseline;gap:8px;width:100%;min-height:44px;padding:8px 0 4px;border:0;border-radius:0;
+  background:none;color:inherit;font:400 24px/1.1 var(--serif);text-align:left;text-transform:uppercase;text-decoration:none}
+.o-row .lead{flex-grow:1;min-width:12px;border-bottom:2px dotted var(--rule);transform:translateY(-7px)}
+.o-row .v{white-space:nowrap}
+.o-row.dim,.o-row .dim{color:var(--muted)}
+.o-row.over,.o-row .over{color:var(--over)}
+.o-row .good{color:var(--green)}
+.o-row .new{font:400 12px var(--sans);letter-spacing:.14em;color:var(--over)}
+.o-two{flex-direction:column;align-items:stretch;gap:0}
+.o-two .top{display:flex;align-items:baseline;gap:8px}
+.o-sm{display:block;font:400 13px/1.3 var(--sans);letter-spacing:.06em;color:var(--muted);padding-top:3px;text-transform:uppercase}
+.o-box{display:inline-block;width:14px;height:14px;border:2px solid currentColor;flex-shrink:0;transform:translateY(1px)}
+.o-box.on{background:currentColor}
+.o-row input.sw{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.o-row input.sw:focus-visible + .top,.o-row input.sw:focus-visible ~ .o-box{outline:3px solid #6fd3ff}
+.o-bar{height:10px;margin-top:12px;border:1px solid var(--rule)}
+.o-bar i{display:block;height:100%;background:var(--ink)}
+.o-split{display:flex;gap:3px;height:14px;margin-top:14px}
+.o-split i{display:block;background:var(--ink)}
+.o-note{font:400 22px/1.2 var(--serif);margin:10px 0 4px}
+.o-foot{font:400 12px/1.5 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding-top:14px}
+.o-chips{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 6px}
+.o-chips .o-key{min-height:40px;font-size:20px;padding:0 12px}
+.o-chips .o-key[aria-pressed="true"]{background:var(--ink);color:var(--ground);text-shadow:none}
+.o-task{padding:0;align-items:center}
+.o-tick{display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;margin-left:-14px;border:0;background:none;color:inherit}
+.o-open{display:flex;align-items:baseline;gap:8px;flex-grow:1;min-width:0;min-height:44px;padding:8px 0 4px;border:0;background:none;color:inherit;
+  font:400 24px/1.1 var(--serif);text-align:left;text-transform:uppercase}
+.o-task.done{color:var(--muted)}
+.o-task.done .o-open > span:first-child{text-decoration:line-through}
+.o-row .del{align-self:center}
+#b-sync .o-key{font-size:20px}
+.o-row:focus-visible,.o-key:focus-visible,.o-amb:focus-visible,.o-tick:focus-visible,.o-open:focus-visible{outline:3px solid #6fd3ff;outline-offset:2px}
 </style>
 </head>
 <body>
@@ -530,77 +587,75 @@ details p{font:400 21px/1.2 var(--serif)}
   <div id="livebar"></div>
 
   <section class="screen" id="s-today" hidden>
-    <div class="mast">
-      <div><p class="word">RUNWAY</p><p class="dateline" id="t-date"></p>
-        <button class="snd" id="snd" type="button" aria-pressed="true">Sound on</button>
-        <button class="snd" id="hum" type="button" aria-pressed="false">Hum off</button></div>
-      <button class="pill solid" data-sheet="log">New entry</button>
+    <div class="o-top">
+      <span class="o-eb" id="t-date"></span>
+      <span><button class="snd" id="snd" type="button" aria-pressed="true">Sound on</button><button class="snd" id="hum" type="button" aria-pressed="false">Hum off</button></span>
     </div>
-    <div class="act" id="t-act" hidden></div>
     <div id="t-hero"></div>
+    <div id="t-act"></div>
     <div id="t-cats"></div>
-    <div class="card" id="t-bank"></div>
-    <div class="card tight" id="t-nav"></div>
+    <div id="t-bank"></div>
+    <div id="t-nav"></div>
+    <button class="o-key o-entry" id="t-entry" data-sheet="log">[ + New entry ]</button>
   </section>
 
   <section class="screen" id="s-forecast" hidden>
-    <div class="mast">
-      <p class="word">RUNWAY</p>
-      <button class="pill" data-sheet="adjust">Adjust</button>
+    <div class="o-top">
+      <span class="o-eb">Coming months</span>
+      <button class="o-key" data-sheet="adjust">Adjust</button>
     </div>
-    <h1 class="h1">Coming <i>months</i></h1>
     <div id="f-hero"></div>
     <div id="f-chart"></div>
     <div id="f-grid"></div>
   </section>
 
   <section class="screen" id="s-month" hidden>
-    <div class="mast">
-      <button class="back" data-go="today">‹ Today</button>
-      <span class="eyebrow">Every month</span>
+    <div class="o-top">
+      <button class="o-key" data-go="today">‹ Today</button>
+      <span class="o-eb">Every month</span>
     </div>
-    <div class="card bare" id="m-hero"></div>
-    <div class="card tight" id="m-rows"></div>
-    <p class="foot" id="m-foot"></p>
+    <div id="m-hero"></div>
+    <div id="m-rows"></div>
+    <div id="m-foot"></div>
   </section>
 
   <section class="screen" id="s-spends" hidden>
-    <div class="mast">
-      <button class="back" data-go="today">‹ Today</button>
-      <span class="eyebrow" id="sp-count"></span>
+    <div class="o-top">
+      <button class="o-key" data-go="today">‹ Today</button>
+      <button class="o-key" id="sp-entry" data-sheet="log">+ Entry</button>
     </div>
-    <div class="card bare" id="sp-hero"></div>
-    <div class="card tight" id="sp-rows"></div>
+    <div id="sp-hero"></div>
+    <div id="sp-rows"></div>
   </section>
 
   <section class="screen" id="s-subs" hidden>
-    <div class="mast">
-      <button class="back" data-back="subs">‹ Back</button>
-      <span class="eyebrow" id="su-count"></span>
+    <div class="o-top">
+      <button class="o-key" data-back="subs">‹ Back</button>
+      <span class="o-eb" id="su-count"></span>
     </div>
-    <div class="card bare" id="su-hero"></div>
-    <div class="card tight" id="su-rows"></div>
-    <div class="card" id="su-gone"></div>
+    <div id="su-hero"></div>
+    <div id="su-rows"></div>
+    <div id="su-gone"></div>
   </section>
 
   <section class="screen" id="s-debts" hidden>
-    <div class="mast">
-      <button class="back" data-go="today">‹ Today</button>
-      <span class="eyebrow">US + NL</span>
+    <div class="o-top">
+      <button class="o-key" data-go="today">‹ Today</button>
+      <span class="o-eb">US + NL</span>
     </div>
-    <div class="card bare" id="d-hero"></div>
-    <div class="card tight" id="d-cards"></div>
-    <div class="card tight" id="d-dutch"></div>
-    <div class="card" id="d-note"></div>
-    <div class="card tight" id="d-leave"></div>
+    <div id="d-hero"></div>
+    <div id="d-cards"></div>
+    <div id="d-dutch"></div>
+    <div id="d-leave"></div>
+    <div id="d-note"></div>
   </section>
 
   <section class="screen" id="s-bank" hidden>
-    <div class="mast">
-      <button class="back" data-go="today">‹ Today</button>
-      <span class="eyebrow">Bank</span>
+    <div class="o-top">
+      <button class="o-key" data-go="today">‹ Today</button>
+      <span id="b-sync"></span>
     </div>
-    <div class="card bare" id="b-body"></div>
+    <div id="b-body"></div>
   </section>
 
   <section class="screen" id="s-payments" hidden>
@@ -613,16 +668,15 @@ details p{font:400 21px/1.2 var(--serif)}
   </section>
 
   <section class="screen" id="s-tasks" hidden>
-    <div class="mast">
-      <p class="word">RUNWAY</p>
-      <span class="eyebrow" id="k-count"></span>
+    <div class="o-top">
+      <span class="o-eb" id="k-count"></span>
+      <button class="o-key" data-sheet="addtask">+ Task</button>
     </div>
-    <h1 class="h1">To <i>do</i></h1>
-    <div class="card" id="k-rule"></div>
-    <div class="card tight" id="k-list"></div>
-    <div class="card" id="k-script"></div>
-    <div class="card" id="k-paul"></div>
-    <p class="foot" id="k-foot"></p>
+    <div id="k-hero"></div>
+    <div id="k-rule"></div>
+    <div id="k-list"></div>
+    <div id="k-paul"></div>
+    <p class="o-foot" id="k-foot"></p>
   </section>
 </div>
 
@@ -1031,7 +1085,7 @@ function dip(M){
 function cacheKey(){ return 'runway-cache-' + CODE; }
 function outboxKey(){ return 'runway-outbox-' + CODE; }
 function saveCache(state){
-  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS, manual:MANUAL });
+  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS, manual:MANUAL, tasks:TASKS });
 }
 
 function applyRemote(data){
@@ -1044,6 +1098,7 @@ function applyRemote(data){
   S = incoming;
   SPENDS = Array.isArray(data.spends) ? data.spends : [];
   MANUAL = data.manual && typeof data.manual === 'object' ? data.manual : {};
+  TASKS = Array.isArray(data.tasks) ? data.tasks : [];
   if (data.bank) BANKINFO = data.bank;
   MATCH = null; CL = null;
   saveCache(data.state);
@@ -1125,7 +1180,7 @@ async function pull(){
 async function poll(){
   if (document.hidden) return;
   if (OUTBOX.length) await flush();
-  if (dirty) return;
+  if (dirty || taskBusy) return;
   try {
     var data = await pull();
     var bankMoved = false;
@@ -1135,7 +1190,9 @@ async function poll(){
     }
     if ((data.rev||0) === REMOTE.rev){ if (bankMoved){ render(); renderSheet(); } return; }
     var keepPage = page;
-    if (data.by && data.by !== ME) SFX.incoming();
+    var known = TASKS.map(function(x){ return x.id; });
+    var newTask = (data.tasks || []).some(function(x){ return known.indexOf(x.id) === -1 && x.by && x.by !== ME; });
+    if ((data.by && data.by !== ME) || newTask) SFX.incoming();
     applyRemote(data);
     page = keepPage;
     render();
@@ -1391,11 +1448,10 @@ function manualBal(m){ return cents(Number(m.bal) + savingsMoves(m)); }
 /* Each hand-entered account is a row to tap: it opens a sheet to type today's balance. */
 function manualRowsHtml(){
   return manualAccounts().map(function(m){
-    var moved = savingsMoves(m), tag = m.id ? 'button' : 'div';
-    return '<' + tag + ' class="row"' + (m.id ? ' data-man="' + esc(m.id) + '"' : '') + '><span class="grow"><b>' + esc(m.name) + '</b><span class="sub">' +
-      esc((m.bank ? m.bank + ' · ' : '') + 'entered by hand' + (m.asOf ? ', ' + shortDate(m.asOf) : '') + (m.by ? ' by ' + m.by : '') +
-        (moved ? ' · ' + (moved > 0 ? '+' : '−') + fmt(Math.abs(moved)) + ' moved since' : '')) + '</span></span>' +
-      '<span class="amt">' + esc(fmt(manualBal(m))) + '</span>' + (m.id ? '<span class="chev">›</span>' : '') + '</' + tag + '>';
+    var moved = savingsMoves(m);
+    return oRow((m.bank ? bankShort(m.bank) + ' ' : '') + m.name, fmt(manualBal(m)), m.id ? 'data-man="' + esc(m.id) + '"' : '', '',
+      'By hand' + (m.asOf ? ' · ' + shortDate(m.asOf) : '') + (m.by ? ' · ' + m.by : '') +
+        (moved ? ' · ' + (moved > 0 ? '+' : '−') + fmt(Math.abs(moved)) + ' moved since' : ''));
   }).join('');
 }
 function inTheBank(){
@@ -1616,45 +1672,6 @@ function paceOf(e){
   return cents(e.total * gone / n - e.spent);
 }
 
-/* One bar per day of the envelope, the even spread as a dashed line. The width is
-   a viewBox, so the chart scales with the column and never measures the page. */
-function dailyHtml(e){
-  var start = periodStart(e), n = daysFrom(start, e.last) + 1, today = todayStr();
-  if (n < 1) return '';
-  var per = {};
-  e.list.forEach(function(s){ per[s.d] = (per[s.d] || 0) + s.amt; });
-  var plan = e.total > 0 ? e.total / n : 0;
-  var days = [], hi = plan * 2;
-  for (var i = 0; i < n; i++){
-    var d = addDays(start, i);
-    days.push({ d:d, v:per[d] || 0 });
-    hi = Math.max(hi, per[d] || 0);
-  }
-  var W = 342, base = 70, tall = 62, slot = W / n, g = '';
-  var Y = function(v){ return base - (hi > 0 ? v / hi * tall : 0); };
-  days.forEach(function(x, i){
-    var cx = i * slot + slot / 2, w = Math.max(2, Math.min(9, slot * 0.6));
-    if (x.d <= today){
-      var h = Math.max(1.5, base - Y(x.v));
-      g += '<rect x="' + (cx - w / 2).toFixed(1) + '" y="' + (base - h).toFixed(1) + '" width="' + w.toFixed(1) +
-        '" height="' + h.toFixed(1) + '" fill="' + (x.d === today ? 'var(--green)' : 'var(--ink)') + '"/>';
-    } else {
-      g += '<circle cx="' + cx.toFixed(1) + '" cy="' + (base - 1) + '" r="1" fill="var(--muted)"/>';
-    }
-  });
-  if (plan > 0){
-    g += '<line x1="0" x2="' + W + '" y1="' + Y(plan).toFixed(1) + '" y2="' + Y(plan).toFixed(1) +
-      '" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2 3" opacity=".55"/>';
-  }
-  g += '<line x1="0" x2="' + W + '" y1="' + base + '" y2="' + base + '" stroke="var(--ink)" stroke-width="1"/>';
-  [0, Math.floor((n - 1) / 2), n - 1].forEach(function(i){
-    var p = ymdParts(days[i].d);
-    g += '<text x="' + (i * slot + slot / 2).toFixed(1) + '" y="88" text-anchor="middle" font-size="10" fill="var(--muted)">' + p[2] + '</text>';
-  });
-  return '<div class="daily"><div class="top"><span class="eyebrow ink">Spent each day</span>' +
-    (plan > 0 ? '<span class="small">dashes: ' + esc(fmt(plan)) + ' a day</span>' : '') + '</div>' +
-    '<svg viewBox="0 0 ' + W + ' 92" role="img" aria-label="Spending per day in ' + esc(e.label) + '">' + g + '</svg></div>';
-}
 
 /* End-of-month balances as bars from one axis, one scale for both sides. */
 function forecastBarsHtml(M){
@@ -1955,10 +1972,11 @@ var SFX = (function(){
    MU-TH-UR types: when a screen or sheet comes up, its headings and figures
    appear letter by letter, in reading order, behind a block cursor. The text
    not yet typed stays in place but invisible, so nothing on the page moves.
-   The whole screen is done in under a second, and a redraw mid-way (a poll, a
+   A screen is done in about a second, however long, and a redraw mid-way (a poll, a
    tap) simply shows the full text. Skipped under reduced motion. */
 var TYPE = (function(){
-  var SEL = '.word, .h1, h2, .eyebrow, .fig-xl, .fig, .deck, .stats .v, .fc-r .m, .fc-r .v';
+  var SEL = '.word, .h1, h2, .eyebrow, .fig-xl, .fig, .deck, .stats .v, .fc-r .m, .fc-r .v, .o-eb, .o-big, .o-line, .o-grp > span, ' +
+    '.o-row > span:not(.lead), .o-row .top > span:not(.lead), .o-open > span:not(.lead), .o-amb > span:not(.lead)';
   var job = 0, live = [], cur = null;
   function finish(){
     live.forEach(function(p){ p.node.data = p.full; if (p.rest.parentNode) p.rest.parentNode.removeChild(p.rest); });
@@ -1984,7 +2002,7 @@ var TYPE = (function(){
     });
     cur = document.createElement('span'); cur.className = 'ty-cur'; cur.setAttribute('aria-hidden', 'true');
     var total = live.reduce(function(t, p){ return t + p.full.length; }, 0);
-    var per = Math.max(4, Math.min(22, 800 / total)), t0 = performance.now();
+    var per = Math.max(1.5, Math.min(22, 800 / total)), t0 = performance.now();
     (function step(now){
       if (my !== job) return;
       var n = Math.floor((now - t0) / per), at = null;
@@ -2010,6 +2028,7 @@ document.addEventListener('pointerdown', function(e){
   var pad = e.target.closest('[data-key],[data-pinkey]');
   if (pad) return SFX.digit(pad.dataset.key || pad.dataset.pinkey);
   if (e.target.closest('[data-task]')) return;   // the tick sounds on change
+  if (e.target.closest('[data-tick]')) return;   // the tick sounds when it lands
   if (e.target.closest('button, select, label, a, input, summary') && !e.target.closest('#snd, #hum')) SFX.key();
 }, true);
 
@@ -2028,7 +2047,7 @@ function openSheet(kind){
   $('scrim').classList.add('open');
   $('sheet').classList.add('open');
   document.body.style.overflow = 'hidden';
-  var f = kind === 'log' || kind === 'manual' ? $('lg-amt') : $('sheet').querySelector('input,select,button');
+  var f = kind === 'log' || kind === 'manual' ? $('lg-amt') : kind === 'addtask' ? $('tk-t') : $('sheet').querySelector('input,select,button');
   if (f) f.focus();
 }
 function closeSheet(){
@@ -2140,6 +2159,82 @@ function renderSheet(){
       }).join('') + '</div>' +
       '<p class="err" id="lg-err" role="alert"></p>' +
       '<button class="enter" data-act="save-spend">' + (received ? 'Enter money in' : 'Enter in the ledger') + '</button>';
+  }
+
+  else if (sheetKind === 'fix'){
+    var fx = fixes(), n = noticeOpen(!!fx);
+    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">' +
+      esc(fx ? fx.now.month.label : 'A note') + '</h2><span></span></div>';
+    if (fx){
+      var br = fx.now.month.bridged, cut = cents(flexTotal(S) - flexTotal(fx.a));
+      html += oHero(fx.now.month.label + ' is short', '−' + fmt(fx.now.by), br ? 'After ' + PLAN.bridge.by + '’s ' + fmt(br) : '', true) +
+        oGrp(fx.aLeft && (!fx.b || fx.bLeft) ? 'Each gets closer' : 'Pick one') +
+        oRow('Spend ' + fmt(cut) + ' less a month', 'Use', 'data-fix="a"', '',
+          PLAN.flex.map(function(f){ return f.label + ' ' + fmt(fx.a[f.id]); }).join(' · ') + (fx.aLeft ? ' · still ' + fmt(fx.aLeft.by) + ' short' : ''));
+      if (fx.b){
+        var extra = cents(flexTotal(S) - flexTotal(fx.b));
+        html += oRow('Pause ' + fx.paused.length + (fx.paused.length === 1 ? ' sub' : ' subs') + (extra ? ' · ' + fmt(extra) + ' less' : ''), 'Use', 'data-fix="b"', '',
+          fx.paused.map(function(x){ return x.name; }).join(' · ') + ' · ' + fmt(sum(fx.paused)) + ' a month' + (fx.bLeft ? ' · still ' + fmt(fx.bLeft.by) + ' short' : ''));
+      }
+      html += oRow('My own mix', '', 'data-sheet="adjust"');
+    }
+    if (n) html += oGrp('Note from ' + (n.from || PLAN.people.other)) + '<p class="o-note">' + esc(n.body) + '</p>' +
+      '<button class="o-row dim" type="button" data-fix="notice"><span>' + (fx ? 'Hide the note' : 'Got it') + '</span></button>';
+    if (!fx && !n) html += '<p class="o-note">Nothing to decide.</p>';
+  }
+
+  else if (sheetKind === 'how'){
+    var A = anchor(), hb = model(S).M.filter(function(m){ return m.bridged; })[0];
+    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">How it’s counted</h2><span></span></div>' +
+      '<p class="o-note">' + (A ? 'Starts from the ' + esc(fmt(A.bal)) + ' you have today' + (manualAccounts().length ? ', savings included' : '') + '. ' : '') +
+      'Counts ' + esc(fmt(flexTotal(S))) + ' a month for ' + esc(flexWords()) + '. ' + esc(FORECAST_SPEND_RULE) + '</p>' +
+      (hb ? '<p class="o-note">' + esc(PLAN.bridge.by) + '’s ' + esc(fmt(hb.bridged)) + ' is in these figures; paying it back is not.</p>' : '') +
+      '<p class="o-note">A month still below zero is not covered.</p>';
+  }
+
+  else if (sheetKind === 'bankmanage'){
+    html = bankManageHtml();
+  }
+
+  else if (sheetKind === 'rule'){
+    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">' + esc(PLAN.rule.eyebrow) + '</h2><span></span></div>' +
+      '<p class="o-big long" style="font-size:56px">' + esc(PLAN.rule.title) + '</p><p class="o-note">' + esc(PLAN.rule.body) + '</p>';
+  }
+
+  else if (sheetKind === 'script'){
+    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">' + esc(PLAN.script.eyebrow) + '</h2><span></span></div>' +
+      '<p class="o-note">' + esc(PLAN.script.quote) + '</p><p class="o-foot">' + esc(PLAN.script.note) + '</p>';
+  }
+
+  else if (sheetKind === 'task'){
+    var k = allTasks().filter(function(x){ return x.id === taskDraft.id; })[0];
+    if (!k){ html = '<h2 id="sheet-title">Gone</h2><p class="hint">This task is no longer in the list.</p>'; }
+    else {
+      html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">Task</h2><span></span></div>' +
+        '<p class="o-note" style="font-size:30px">' + esc(k.t) + '</p>' +
+        '<p class="o-sm">For ' + esc(k.who) + (k.by ? ' · added by ' + esc(k.by) : '') + (k.when ? ' · ' + esc(k.when) : '') + '</p>' +
+        (k.tel ? oGrp('Number') + '<a class="o-row" href="tel:' + esc(k.tel) + '"><span>' + esc(k.meta) + '</span><span class="lead"></span><span class="v">Call ›</span></a>'
+          : k.meta ? oGrp('Where') + oRow(k.meta, '') : '') +
+        (k.detail ? oGrp('What to say') + '<p class="o-note">' + esc(k.detail) + '</p>' : '') +
+        '<button class="o-key" type="button" data-tick="' + esc(k.id) + '" style="width:100%;margin-top:18px">[ ' + (k.done ? 'Not done' : 'Done') + ' ]</button>' +
+        (k.src === 'app' ? '<button class="o-row dim" type="button" data-tdel="' + esc(k.id) + '"><span>Delete the task</span></button>' : '');
+    }
+  }
+
+  else if (sheetKind === 'addtask'){
+    var people = [PLAN.people.owner, PLAN.people.other];
+    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Cancel</button><h2 id="sheet-title">New task</h2><span></span></div>' +
+      '<label class="memo"><span class="eyebrow">What</span><input id="tk-t" type="text" maxlength="60" autocomplete="off" enterkeyhint="done" ' +
+        'placeholder="Call the gemeente" value="' + esc(addDraft.t) + '"></label>' +
+      '<p class="o-eb" style="margin-top:14px">For</p><div class="o-chips" role="group" aria-label="For">' + people.map(function(p){
+        return '<button class="o-key" type="button" data-twho="' + esc(lc(p)) + '" aria-pressed="' + (addDraft.who === lc(p)) + '">' + esc(p) + '</button>';
+      }).join('') + '</div>' +
+      '<p class="o-eb" style="margin-top:10px">When</p><div class="o-chips" role="group" aria-label="When">' + ['', 'This week', 'This month'].map(function(w){
+        return '<button class="o-key" type="button" data-twhen="' + esc(w) + '" aria-pressed="' + (addDraft.when === w) + '">' + esc(w || 'No date') + '</button>';
+      }).join('') + '</div>' +
+      '<p class="err" id="tk-err" role="alert"></p>' +
+      '<button class="enter" data-act="add-task">Add the task</button>' +
+      '<p class="o-foot">The other phone gets an alert</p>';
   }
 
   else if (sheetKind === 'manual'){
@@ -2465,173 +2560,107 @@ function render(){
   var lastLabel = PLAN.months[PLAN.months.length-1].label;
 
   /* Today */
-  var now = new Date();
   SFX.paint();
-  $('t-date').textContent = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+  $('t-date').textContent = new Date().toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' });
   var ci = monthIndexOf(todayStr());
   var env = inRange(ci) ? envelope(ci) : null;
-  var act = actHtml();
-  SFX.alert(page === 'today' && !!fixes());
-  $('t-act').innerHTML = act;
-  $('t-act').hidden = !act;
-  $('t-hero').innerHTML = env ? heroHtml(env)
-    : '<p class="fig-xl">' + esc(fmt(cur.end)) + '</p>' +
-      '<p class="deck">where the account ends up, by ' + esc(lastLabel) + '.</p>';
-  $('t-cats').hidden = !env;
-  /* The daily chart says nothing until something has been spent. */
-  $('t-cats').innerHTML = env ? (env.spent > 0 ? dailyHtml(env) : '') + catsHtml(env) : '';
+  var fx = fixes();
+  SFX.alert(page === 'today' && !!fx);
+  $('t-hero').innerHTML = env ? todayHeroHtml(env) : oHero('By ' + lastLabel, fmt(cur.end));
+  $('t-act').innerHTML = actRowHtml(fx) + alertsLine();
+  $('t-cats').innerHTML = env ? everydayHtml(env) : '';
+  $('t-bank').innerHTML = todayMoneyHtml(env);
+  $('t-entry').textContent = '[ + ' + (hasBank() ? 'Enter cash' : 'New entry') + ' ]';
+  $('sp-entry').textContent = hasBank() ? '+ Cash' : '+ Entry';
 
   var d = dip(cur.M);
   var br = cur.M.filter(function(m){ return m.bridged; })[0];
-  var dipText = d
-    ? cur.M.slice(d.lo, d.hi+1).filter(function(m){ return m.bal < 0; }).map(function(m){ return m.label; }).join(' and ') + ': below zero, not covered'
-    : br ? br.label + ': ' + PLAN.bridge.label + ' ' + fmt(br.bridged) : 'Never below zero';
-  $('t-bank').innerHTML = '<p class="eyebrow ink" style="padding-bottom:4px">Your money</p>' + todayBankHtml(env);
-  document.querySelectorAll('[data-sheet="log"]').forEach(function(b){
-    if (b.classList.contains('pill')) b.textContent = hasBank() ? 'Enter cash' : 'New entry';
-  });
-
-  $('t-nav').innerHTML = '<p class="eyebrow ink" style="padding:14px 0 4px">The plan</p>' + [
-    ['forecast','The coming months', dipText, fmt(cur.end) + ' by ' + lastLabel.slice(0, 3)],
-    ['month','Monthly costs','Bills, loans, subscriptions, everyday', fmt(cur.monthly)],
-    ['subs','Subscriptions', keptSubs(S).length + ' kept · ' + fmt(cur.subsT * 12) + ' a year', fmt(cur.subsT, true)],
-    ['debts','Debts', 'Three US cards and the Dutch loans', PLAN.debts.usTotal]
-  ].map(function(r){
-    return '<button class="row" data-go="' + r[0] + '"><span class="grow"><b>' + esc(r[1]) +
-      '</b><span class="sub">' + esc(r[2]) + '</span></span><span class="amt">' + esc(r[3]) +
-      '</span><span class="chev">›</span></button>';
-  }).join('');
+  $('t-nav').innerHTML = oGrp('The plan') +
+    oRow('By ' + lastLabel.slice(0, 3), fmt(cur.end), 'data-go="forecast"', d ? 'over' : '') +
+    oRow('Every month', fmt(cur.monthly), 'data-go="month"') +
+    oRow('Subscriptions', fmt(cur.subsT, true), 'data-go="subs"') +
+    oRow('Debts', PLAN.debts.usTotal, 'data-go="debts"');
 
   /* Forecast */
-  var A = anchor();
-  $('f-hero').innerHTML = '<p class="deck">How much money is left at the end of each month' +
-      (A ? ', starting from the <b>' + esc(fmt(A.bal)) + '</b> you have today' + (manualAccounts().length ? ' (savings included)' : '') : '') +
-      (changed() ? ', with the changes made.' : '.') + '</p>' +
-    '<div class="stats"><div><span class="v">' + esc(fmt(cur.end)) + '</span><span class="k">left at the end of ' + esc(lastLabel) + '</span></div>' +
-      '<div><span class="v">' + esc(fmt(cur.monthly)) + '</span><span class="k">what a month costs</span></div></div>';
-
-  $('f-chart').innerHTML = forecastBarsHtml(cur.M);
-
+  var below = d ? cur.M.slice(d.lo, d.hi + 1).filter(function(m){ return m.bal < 0; }).map(function(m){ return m.key; }) : [];
+  $('f-hero').innerHTML = oHero('Left · end of ' + lastLabel, fmt(cur.end), 'A month costs ' + fmt(cur.monthly)) +
+    (below.length ? oAmb(below.join(' + ') + ' below zero', 'data-sheet="fix"') : '');
+  $('f-chart').innerHTML = oGrp('End of each month') + forecastBarsHtml(cur.M);
   var salaryFrom = monthLabel(PLAN.salary.from);
-  $('f-grid').innerHTML = '<div class="notes">' +
-      (br ? '<div><span class="eyebrow">' + esc(br.key) + '</span>' +
-        '<p>' + esc(PLAN.bridge.label) + ' ' + esc(fmt(br.bridged)) +
-        (PLAN.bridge.max && br.bridged < PLAN.bridge.max ? ', at most ' + esc(fmt(PLAN.bridge.max)) : '') + '.</p></div>' : '') +
-      (d ? '<div><span class="eyebrow over">' + esc(cur.M[d.lo].key + (d.hi > d.lo ? ' — ' + cur.M[d.hi].key : '')) + '</span>' +
-        '<p>Below zero. Not covered.</p></div>' : '') +
-      '<div><span class="eyebrow good">From ' + esc(salaryFrom) + '</span>' +
-        '<p>Salary returns, ' + esc(fmt(S.salary)) + ' net.</p></div>' +
-    '</div>' +
-    '<p class="small" style="margin-top:20px">Counts ' + esc(fmt(flexTotal(S))) + ' a month for ' +
-      esc(flexWords()) + '. ' + esc(FORECAST_SPEND_RULE) +
-      (br ? ' ' + esc(PLAN.bridge.by) + '’s ' + esc(fmt(br.bridged)) + ' is in these figures; paying it back is not.' : '') + '</p>';
+  $('f-grid').innerHTML = oGrp('What changes') +
+    (br ? oRow(br.key + ' · ' + PLAN.bridge.by + ' bridges', '+' + fmt(br.bridged)) : '') +
+    oRow(salaryFrom.slice(0, 3) + ' · salary back', fmt(S.salary)) +
+    oRow('How it’s counted', '', 'data-sheet="how"');
 
   /* Month */
-  $('m-hero').innerHTML = '<p class="lbl">A normal month costs</p>' +
-    '<p class="fig sm">' + fmt(cur.monthly) + '</p>';
   var groups = [
     ['Housing, energy, phone', sum(PLAN.fixed), 1, null],
-    ['Loans', sum(PLAN.loans), .55, null],
-    ['Subscriptions', cur.subsT, .32, 'subs'],
-    [andList(PLAN.flex.map(function(f){ return f.label.toLowerCase(); }))
-      .replace(/^./, function(c){ return c.toUpperCase(); }), flexTotal(S), .16, 'adjust']
+    ['Loans', sum(PLAN.loans), .7, null],
+    ['Subscriptions', cur.subsT, .45, 'data-go="subs"'],
+    ['Everyday', flexTotal(S), .25, 'data-sheet="adjust"']
   ];
-  $('m-hero').innerHTML += '<div class="split">' + groups.map(function(g){
-    return '<i style="flex:' + g[1] + ';opacity:' + g[2] + '"></i>';
-  }).join('') + '</div>';
-  $('m-hero').innerHTML = monthBucketsHtml(ci) + $('m-hero').innerHTML;
-  $('m-rows').innerHTML = groups.map(function(g){
-    var pct = Math.round(g[1] / cur.monthly * 100);
-    var tag = g[3] ? 'button' : 'div';
-    var attr = g[3] === 'subs' ? ' data-go="subs"' : (g[3] ? ' data-sheet="adjust"' : '');
-    return '<' + tag + ' class="row"' + attr + '><span class="grow"><b>' + esc(g[0]) +
-      '</b><span class="sub">' + pct + '%</span></span><span class="amt">' + fmt(g[1]) + '</span>' +
-      (g[3] ? '<span class="chev">›</span>' : '') + '</' + tag + '>';
+  $('m-hero').innerHTML = oHero('A normal month', fmt(cur.monthly)) +
+    '<div class="o-split" aria-hidden="true">' + groups.map(function(g){
+      return '<i style="flex:' + g[1] + ' 0 0;opacity:' + g[2] + '"></i>';
+    }).join('') + '</div>' + monthBucketsHtml(ci);
+  $('m-rows').innerHTML = oGrp('Where it goes', fmt(cur.monthly)) + groups.map(function(g){
+    return oRowH(esc(g[0]), '<span class="dim">' + Math.round(g[1] / cur.monthly * 100) + '%</span> ' + esc(fmt(g[1])), g[3]);
   }).join('');
-  $('m-foot').textContent = PLAN.stillToCome || '';
+  $('m-foot').innerHTML = stillToPayHtml(PLAN.stillToCome);
 
   /* Subscriptions */
   var live = PLAN.subs.filter(function(s){ return !s.cancelled; });
   var gone = PLAN.subs.filter(function(s){ return s.cancelled; });
-  $('su-count').textContent = keptSubs(S).length + ' kept';
-  $('su-hero').innerHTML = '<p class="lbl">Kept, per month</p>' +
-    '<p class="fig sm">' + fmt(cur.subsT, true) + '</p>' +
-    '<p class="lbl" style="margin-top:6px">' + fmt(cur.subsT * 12) + ' a year' +
-    (cur.subsT !== base.subsT ? ' · <span class="quiet strike">was ' + fmt(base.subsT, true) + '</span>' : '') + '</p>';
-  $('su-rows').innerHTML = live.map(function(s){
+  $('su-count').textContent = keptSubs(S).length + ' kept' + (gone.length ? ' · ' + gone.length + ' cancelled' : '');
+  $('su-hero').innerHTML = oHero('Kept · a month', fmt(cur.subsT, true),
+    fmt(cur.subsT * 12) + ' a year' + (cur.subsT !== base.subsT ? ' · was ' + fmt(base.subsT, true) : ''));
+  $('su-rows').innerHTML = oGrp('Subscriptions', fmt(cur.subsT, true) + ' kept') + live.map(function(s){
     var on = (S.subs||[]).indexOf(s.id) > -1;
-    return '<label class="row' + (on ? '' : ' off') + '"><span class="grow"><b>' + esc(s.name) + '</b>' +
-      (s.note ? '<span class="sub">' + esc(s.note) + '</span>' : '') + '</span>' +
-      '<span class="amt">' + fmt(s.amount, true) + '</span>' +
-      '<input type="checkbox" class="sw" value="' + s.id + '"' + (on ? ' checked' : '') +
-      ' aria-label="Keep ' + esc(s.name) + '"></label>';
+    var top = '<span class="o-box' + (on ? ' on' : '') + '"></span><span>' + esc(s.name) + '</span><span class="lead"></span>' +
+      '<span class="v">' + fmt(s.amount, true) + '</span>';
+    return '<label class="o-row' + (s.note ? ' o-two' : '') + (on ? '' : ' dim') + '">' +
+      '<input type="checkbox" class="sw" value="' + s.id + '"' + (on ? ' checked' : '') + ' aria-label="Keep ' + esc(s.name) + '">' +
+      (s.note ? '<span class="top">' + top + '</span><span class="o-sm" style="padding-left:22px">' + esc(s.note) + '</span>' : top) + '</label>';
   }).join('');
-  $('su-gone').innerHTML = '<p class="eyebrow">Cancelled  ·  −' + fmt(sum(gone), true) + '</p>' +
-    '<div style="margin-top:8px">' + gone.map(function(s){
-      return '<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0">' +
-        '<span class="small">' + esc(s.name) + '</span>' +
-        '<span class="small strike">' + fmt(s.amount, true) + '</span></div>';
-    }).join('') + '</div>';
+  $('su-gone').innerHTML = gone.length ? oGrp('Cancelled', '−' + fmt(sum(gone), true)) + gone.map(function(s){
+    return oRow(s.name, fmt(s.amount, true), '', 'dim');
+  }).join('') : '';
 
   /* Debts */
   var D = PLAN.debts;
-  $('d-hero').innerHTML = '<p class="lbl">US cards, together</p>' +
-    '<p class="fig sm">' + esc(D.usTotal) + '</p>' +
-    '<p class="lbl" style="margin-top:8px">' + esc(D.usSub) + '</p>';
-  $('d-cards').innerHTML = '<p class="eyebrow" style="padding-top:14px">' + esc(D.order) + '</p>' +
-    D.cards.map(function(c){
-      return '<div class="row"><span class="grow"><b>' + esc(c.name) + '</b>' +
-        '<span class="sub">' + esc(c.apr) + ' · ' + esc(c.when) + '</span></span>' +
-        '<span class="amt">' + esc(c.balance) + '</span></div>';
-    }).join('');
-  $('d-dutch').innerHTML = '<p class="eyebrow" style="padding-top:14px">Dutch</p>' +
-    D.dutch.map(function(r){
-      var tag = r.lever ? 'button' : 'div';
-      return '<' + tag + ' class="row"' + (r.lever ? ' data-sheet="adjust"' : '') +
-        '><span class="grow"><b>' + esc(r.name) + '</b><span class="sub">' + esc(r.sub) + '</span></span>' +
-        '<span class="amt">' + esc(r.amount || (r.lever === 'gem' ? monthLabel(S.gem) : fmt(S[r.lever]||0))) + '</span>' +
-        (r.lever ? '<span class="chev">›</span>' : '') + '</' + tag + '>';
-    }).join('');
-  $('d-note').innerHTML = '<p style="font:400 24px/1.2 var(--serif)">' + esc(D.note.title) +
-    '</p><p class="small" style="margin-top:6px">' + esc(D.note.body) + '</p>';
-  $('d-leave').innerHTML = '<p class="eyebrow" style="padding-top:14px">Leave these alone</p>' +
-    D.leave.map(function(r){
-      return '<div class="row"><span class="grow"><b style="color:var(--ink-2)">' +
-        esc(r.name) + '</b><span class="sub">' + esc(r.sub) + '</span></span></div>';
-    }).join('');
+  $('d-hero').innerHTML = oHero('US cards', D.usTotal) + (D.usSub ? oAmb(D.usSub) : '');
+  $('d-cards').innerHTML = oGrp(D.order, D.usTotal) + D.cards.map(function(c, i){
+    return oRow((i + 1) + ' ' + c.name, c.balance, '', '', c.apr + ' · ' + c.when);
+  }).join('');
+  $('d-dutch').innerHTML = oGrp('Dutch') + D.dutch.map(function(r){
+    return oRow(r.name, r.amount || (r.lever === 'gem' ? monthLabel(S.gem) : fmt(S[r.lever]||0)),
+      r.lever ? 'data-sheet="adjust"' : '', '', r.sub);
+  }).join('');
+  $('d-leave').innerHTML = oGrp('Leave these alone') + D.leave.map(function(r){
+    return oRow(r.name, '', '', 'dim', r.sub);
+  }).join('');
+  $('d-note').innerHTML = oGrp('The goal') + oRow(D.note.title, '', '', '', D.note.body);
 
   /* Tasks */
-  var open = PLAN.tasks.filter(function(t){ return !S.tasks[t.id]; }).length;
-  $('k-count').textContent = open ? open + ' left' : 'all done';
-  $('k-rule').innerHTML = '<p class="eyebrow">' + esc(PLAN.rule.eyebrow) + '</p>' +
-    '<p style="font:400 26px/1.15 var(--serif);margin-top:6px">' + esc(PLAN.rule.title) + '</p>' +
-    '<p class="small" style="margin-top:6px">' + esc(PLAN.rule.body) + '</p>';
-  $('k-list').innerHTML = PLAN.tasks.map(function(t){
-    var done = !!S.tasks[t.id];
-    var meta = t.tel
-      ? '<a class="tel" href="tel:' + esc(t.tel) + '">' + esc(t.meta) + '</a>'
-      : esc(t.meta);
-    return '<div class="row"><input type="checkbox" class="cb" data-task="' + t.id + '"' +
-      (done ? ' checked' : '') + ' aria-label="' + esc(t.title) + ' done">' +
-      '<span class="grow"><b' + (done ? ' style="text-decoration:line-through;color:var(--muted)"' : '') + '>' +
-      esc(t.title) + '</b><span class="sub">' + meta + '</span>' +
-      (t.detail ? '<details><summary>What to say</summary><p>' + esc(t.detail) + '</p></details>' : '') +
-      '</span>' + (t.dueLabel && !done ? '<span class="chip">' + esc(t.dueLabel) + '</span>' : '') + '</div>';
-  }).join('');
-  $('k-script').innerHTML = '<p class="eyebrow">' + esc(PLAN.script.eyebrow) + '</p>' +
-    '<p class="quote">' + esc(PLAN.script.quote) + '</p>' +
-    '<p class="small" style="margin-top:10px">' + esc(PLAN.script.note) + '</p>';
-  $('k-paul').innerHTML = '<p class="eyebrow">' + esc(PLAN.people.other) + ' is on these</p>' +
-    '<ul class="plist">' + PLAN.paul.map(function(s){ return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>';
+  var T = allTasks(), mine = T.filter(function(k){ return k.who === lc(PLAN.people.owner); }),
+      theirs = T.filter(function(k){ return k.who === lc(PLAN.people.other); });
+  var left = mine.filter(function(k){ return !k.done; }).length;
+  $('k-count').textContent = left ? left + ' left' : 'all done';
+  var next = mine.filter(function(k){ return !k.done && k.due; }).sort(function(a, b){ return a.due < b.due ? -1 : 1; })[0];
+  $('k-hero').innerHTML = (next ? oHero('Next deadline', shortDate(next.due), next.t) : oHero('To do', String(left), left === 1 ? 'task left' : 'tasks left')) +
+    (taskErr ? '<p class="o-sm" style="color:var(--over)">' + esc(taskErr) + '</p>' : '');
+  $('k-rule').innerHTML = PLAN.rule ? oAmb('Rule · ' + PLAN.rule.title, 'data-sheet="rule"') : '';
+  $('k-list').innerHTML = taskGroupHtml(PLAN.people.owner, mine) + (PLAN.script ? oRow(PLAN.script.eyebrow, '', 'data-sheet="script"') : '');
+  $('k-paul').innerHTML = taskGroupHtml(PLAN.people.other, theirs);
   $('k-foot').textContent = (PLAN.handoff ? 'From ' + PLAN.handoff + '. ' : '') + (PLAN.footnote || '');
 
   /* This month's spends */
   var le = inRange(ci) ? envelope(ci) : null;
-  $('sp-count').textContent = le ? le.label : '';
-  $('sp-hero').innerHTML = le ? spendsHeroHtml(le) : '<p class="small">Outside the months this plan covers.</p>';
+  $('sp-hero').innerHTML = le ? spendsHeroHtml(le) : '<p class="o-foot">Outside the months this plan covers.</p>';
   $('sp-rows').innerHTML = le ? spendRowsHtml(le) : '';
-  $('sp-rows').hidden = !le;
 
+  if (page === 'bank') $('b-sync').innerHTML = bankKey && hasBank()
+    ? '<button class="o-key" data-act="sync" aria-label="Sync now">⟳ ' + esc(syncedAt()) + '</button>' : '';
   if (page === 'bank' && !(document.activeElement && document.activeElement.id === 'bank-q')) $('b-body').innerHTML = bankScreenHtml();
   if (page === 'payments'){
     /* Redrawing the head while someone types in its search box would take the box away. */
@@ -2641,6 +2670,211 @@ function render(){
 
   renderFloat(cur, base);
   renderUndo();
+}
+
+/* ─────────────────────────── organised rows ───────────────────────────
+   The pieces every screen is built from. oRow escapes; oRowH takes markup. With
+   attrs a row is a button with a chevron. */
+function lc(v){ return String(v || '').toLowerCase(); }
+function oGrp(label, total){
+  return '<div class="o-grp"><span>' + esc(label) + '</span><span>' + esc(total || '') + '</span></div>';
+}
+function oRowH(name, value, attrs, cls, sub){
+  var tag = attrs ? 'button' : 'div';
+  var top = '<span>' + name + '</span>' + (value || attrs ? '<span class="lead"></span><span class="v">' + value + (attrs ? ' ›' : '') + '</span>' : '');
+  return '<' + tag + ' class="o-row' + (sub ? ' o-two' : '') + (cls ? ' ' + cls : '') + '"' + (attrs ? ' type="button" ' + attrs : '') + '>' +
+    (sub ? '<span class="top">' + top + '</span><span class="o-sm">' + sub + '</span>' : top) + '</' + tag + '>';
+}
+function oRow(name, value, attrs, cls, sub){ return oRowH(esc(name), esc(value), attrs, cls, sub ? esc(sub) : ''); }
+function oHero(eb, big, line, over){
+  return '<p class="o-eb">' + esc(eb) + '</p><p class="o-big' + (String(big).length > 7 ? ' long' : '') + (over ? ' over' : '') + '">' + esc(big) + '</p>' +
+    (line ? '<p class="o-line">' + esc(line) + '</p>' : '');
+}
+function oAmb(text, attrs){
+  return attrs ? '<button class="o-amb" type="button" ' + attrs + '><span>▲ ' + esc(text) + '</span><span class="lead"></span><span>›</span></button>'
+    : '<div class="o-amb"><span>▲ ' + esc(text) + '</span></div>';
+}
+
+/* Today's figure: what is left of the everyday budgets, or in the pockets once they
+   are linked; amber once it is over. */
+function todayHeroHtml(e){
+  var left = e.pockets && e.index !== 0 ? e.pocketLeft : e.left, over = left < 0;
+  var days = e.daysLeft > 0 ? e.daysLeft + (e.daysLeft === 1 ? ' day' : ' days') : 'month over';
+  var perDay = left > 0 && e.daysLeft > 0 ? fmtAmt(cents(left / e.daysLeft)) + ' a day · ' : '';
+  return oHero((over ? 'Over · ' : e.pockets ? 'In the pockets · ' : 'Left to spend · ') + e.label, fmtAmt(Math.abs(left)), perDay + days, over) +
+    statusHtml();
+}
+/* One amber row while a month is short (or a note is waiting); the fixes are in its sheet. */
+function actRowHtml(fx){
+  var n = noticeOpen(!!fx);
+  if (fx) return oAmb(fx.now.month.key + ' −' + fmt(fx.now.by) + ' · pick a fix', 'data-sheet="fix"');
+  return n ? oAmb('A note from ' + (n.from || PLAN.people.other), 'data-sheet="fix"') : '';
+}
+function everydayHtml(e){
+  var first = e.index === 0, pk = e.pockets && !first;
+  var html = oGrp(first ? 'Everyday · spent since ' + shortDate(PLAN.asOf) : pk ? 'Pockets · left' : 'Everyday · left',
+    fmtAmt(first ? e.spent : pk ? e.pocketLeft : e.left));
+  html += e.cats.map(function(c){
+    return oRow(c.label, first ? fmtAmt(c.spent) : fmtLeft(c.left), 'data-go="spends"', !first && c.left < 0 ? 'over' : '');
+  }).join('');
+  if (e.other) html += oRow('Other', fmtAmt(e.other) + ' spent', '', 'dim');
+  if (hasBank() && (e.pockets ? e.outside : e.bank)) html += oRow(e.pockets ? 'Not from a pocket' : 'Card & bank',
+    fmtAmt(e.pockets ? e.outside : e.bank) + ' spent', '', e.pockets ? 'over' : 'dim');
+  if (e.legacy) html += oRow('Earlier', fmtAmt(e.legacy) + ' spent', '', 'dim');
+  if (hasBank()) html += oRow('Everyday payments',
+    String(bankIn(e.index).filter(function(c){ return c.counts && c.b === 'everyday'; }).length), 'data-pays="everyday"');
+  return html;
+}
+function todayMoneyHtml(env){
+  var html = oGrp('Money');
+  if (hasBank()){
+    var total = inTheBank(), warn = BANK.conns.some(function(c){ return consentNote(c).warn; });
+    var fresh = classified().filter(isNew).length;
+    var toSort = classified().filter(function(c){ return c.b === 'check' && !c.hidden; }).length;
+    var monthN = env ? bankIn(env.index).filter(function(c){ return !c.hidden; }).length : 0;
+    html += oRow('In the bank', total === null ? '—' : fmt(total), 'data-go="bank"', warn ? 'over' : '');
+    if (!hasPockets()) html += oRow('Link the pockets', '', 'data-sheet="bankmanage"', 'over');
+    html += oRowH('Payments' + (fresh && !toSort ? ' <span class="new">' + fresh + ' new</span>' : ''),
+      esc(toSort ? toSort + ' to sort' : String(monthN)), 'data-pays="' + (toSort ? 'check' : 'all') + '"', toSort ? 'over' : '');
+    return html;
+  }
+  html += oRow('In the bank', fmt(PLAN.start), 'data-go="bank"', '', 'As of ' + shortDate(PLAN.asOf));
+  if (BANKINFO.conns && !bankKey) html += oRow('Enter the PIN', 'Bank', 'data-pin="unlock"');
+  else html += oRow('Connect the bank', '', 'data-go="bank"');
+  return html;
+}
+/* The plan's line of bills still to pay ("…: Amex Gold bill in October €354.13 · …")
+   as rows; left as a line if it does not read that way. */
+function stillToPayHtml(text){
+  var m = String(text || '').match(/^[^:]*:\s*(.*)$/);
+  if (!m) return text ? '<p class="o-foot">' + esc(text) + '</p>' : '';
+  var items = m[1].replace(/\.\s*$/, '').split(/\s+·\s+/).map(function(part){
+    var a = part.match(/^(.*?)\s*(€[\d.,]+)$/);
+    if (!a) return null;
+    var name = a[1], when = '';
+    var w = name.match(/^(.*?),?\s+in\s+(\w+)$/);
+    if (w){ name = w[1]; when = w[2]; }
+    var bits = name.split(/,\s*/);
+    return { name: bits[0], sub: [bits.slice(1).join(', '), when].filter(Boolean).join(' · '), amt: a[2], n: Number(a[2].replace(/[€,]/g, '')) };
+  });
+  if (!items.length || items.some(function(x){ return !x; })) return '<p class="o-foot">' + esc(text) + '</p>';
+  return oGrp('On top · still to pay', fmt(cents(items.reduce(function(t, x){ return t + x.n; }, 0)), true)) +
+    items.map(function(x){ return oRow(x.name, x.amt, '', '', x.sub); }).join('');
+}
+function spendsHeroHtml(e){
+  var pct = e.total > 0 ? Math.min(100, Math.max(0, e.logged / e.total * 100)) : 0;
+  return oHero('Spent · ' + e.label + (e.index === 0 ? ' since ' + shortDate(PLAN.asOf) : ''), fmtAmt(e.logged),
+      fmtLeft(e.left) + (e.left < 0 ? '' : ' left') + ' of ' + fmtAmt(e.total)) +
+    '<div class="o-bar" aria-hidden="true"><i style="width:' + pct.toFixed(1) + '%"></i></div>' + statusHtml() +
+    (hasBank() ? '<p class="o-foot">Cash only · card payments come in from the bank</p>' : '');
+}
+/* Entries by day, newest first, each day with what went out that day. */
+function spendRowsHtml(e){
+  var list = newestFirst(e.entries);
+  if (!list.length) return oGrp('Entries') + '<div class="o-row dim"><span>Nothing entered yet</span></div>';
+  var html = '', day = null;
+  list.forEach(function(s){
+    if (s.d !== day){
+      day = s.d;
+      html += oGrp(dayLabel(day), fmtAmt(cents(list.filter(function(x){ return x.d === day && !isIn(x); })
+        .reduce(function(t, x){ return t + x.amt; }, 0))));
+    }
+    var bits = s.note ? [flexLabel(s.cat)] : [];
+    if (s.by && s.by !== ME) bits.push(s.by);
+    if (s.pending) bits.push(sending && !sendFailed ? 'saving…' : 'not sent yet');
+    html += '<div class="o-row' + (bits.length ? ' o-two' : '') + '"><span class="top"><span>' + esc(s.note || flexLabel(s.cat)) + '</span>' +
+      '<span class="lead"></span><span class="v' + (isIn(s) ? ' good' : '') + '">' + (isIn(s) ? '+' : '') + fmtAmt(s.amt) + '</span>' +
+      '<button class="del" data-del="' + esc(s.id) + '" aria-label="Delete ' + esc(fmtAmt(s.amt) + ' ' + (s.note || flexLabel(s.cat))) + '">×</button></span>' +
+      (bits.length ? '<span class="o-sm">' + esc(bits.join(' · ')) + '</span>' : '') + '</div>';
+  });
+  return html;
+}
+function syncedAt(){
+  if (!BANK || !BANK.synced) return 'sync';
+  var dt = new Date(BANK.synced);
+  return ymd(dt) === todayStr() ? pad2(dt.getHours()) + ':' + pad2(dt.getMinutes()) : shortDate(ymd(dt));
+}
+
+/* ─────────────────────────── tasks ───────────────────────────
+   The plan's tasks are the owner's, with their ticks in state; the "on these" list
+   is the other person's, ticked the same way. Tasks either of them adds in the app
+   live in the Worker's own tasks document, ticks and all, and adding one for
+   someone sends an alert to the other phones. */
+var TASKS = [];            // tasks added in the app, as the Worker last returned them
+var taskBusy = 0, taskErr = '', taskDraft = null, addDraft = null;
+function allTasks(){
+  var owner = lc(PLAN.people.owner), other = lc(PLAN.people.other);
+  return PLAN.tasks.map(function(t){
+    return { id:t.id, t:t.title, who:owner, when:t.dueLabel || '', due:t.due || null, done:!!S.tasks[t.id], src:'plan',
+      tel:t.tel, meta:t.meta, detail:t.detail, by:PLAN.people.other, hard:!!t.due };
+  }).concat((PLAN.paul || []).map(function(title, i){
+    var id = 'paul' + i;
+    return { id:id, t:title, who:other, when:'', done:!!S.tasks[id], src:'plan', by:PLAN.people.other };
+  })).concat(TASKS.map(function(x){
+    return { id:x.id, t:x.t, who:x.who, when:x.when || '', done:!!x.done, src:'app', by:x.by || '', at:x.at || '' };
+  }));
+}
+function taskGroupHtml(name, list){
+  var left = list.filter(function(k){ return !k.done; }).length;
+  return oGrp(name, list.length ? left + ' of ' + list.length + ' left' : '') + (list.length ? list.map(function(k){
+    var fresh = k.src === 'app' && k.by && k.by !== ME && k.at && Date.now() - Date.parse(k.at) < 3 * 864e5 && !k.done;
+    return '<div class="o-row o-task' + (k.done ? ' done' : '') + '">' +
+      '<button class="o-tick" type="button" data-tick="' + esc(k.id) + '" aria-pressed="' + k.done + '" aria-label="' + esc(k.t) + ' done">' +
+        '<span class="o-box' + (k.done ? ' on' : '') + '"></span></button>' +
+      '<button class="o-open" type="button" data-topen="' + esc(k.id) + '"><span>' + esc(k.t) + '</span>' +
+        (fresh ? '<span class="new">new</span>' : '') + '<span class="lead"></span>' +
+        '<span class="v' + (k.hard && !k.done ? ' over' : '') + '">' + esc(k.when) + ' ›</span></button></div>';
+  }).join('') : '<div class="o-row dim"><span>Nothing yet</span></div>');
+}
+async function saveTask(task, isNew){
+  var before = TASKS.slice();
+  TASKS = TASKS.filter(function(x){ return x.id !== task.id; }).concat([Object.assign({ by: ME || null, at: new Date().toISOString() },
+    before.filter(function(x){ return x.id === task.id; })[0] || {}, task)]);
+  taskErr = '';
+  render(); renderSheet();
+  taskBusy++;
+  var res = null;
+  try {
+    res = await fetch(API + '/api/task/' + CODE, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ by: ME || null, task: { id:task.id, t:task.t, who:task.who, when:task.when || '', done:!!task.done } }) });
+  } catch(e){ res = null; }
+  taskBusy--;
+  if (!res || !res.ok){
+    TASKS = before; SFX.no();
+    taskErr = isNew ? 'The task did not save. Check the connection and try again.' : 'That change did not save. Try again.';
+    render(); renderSheet();
+  }
+}
+async function deleteTask(id){
+  var before = TASKS.slice();
+  TASKS = TASKS.filter(function(x){ return x.id !== id; });
+  SFX.erase();
+  closeSheet(); render();
+  taskBusy++;
+  var res = null;
+  try { res = await fetch(API + '/api/task/' + CODE + '/' + id, { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ by: ME || null }) }); }
+  catch(e){ res = null; }
+  taskBusy--;
+  if (!res || !res.ok){ TASKS = before; SFX.no(); taskErr = 'The task was not deleted. Try again.'; render(); }
+}
+function tickTask(id){
+  var k = allTasks().filter(function(x){ return x.id === id; })[0];
+  if (!k) return;
+  if (k.done) SFX.key(); else SFX.tick();
+  if (k.src === 'plan'){
+    if (k.done) delete S.tasks[id]; else S.tasks[id] = true;
+    push(); render(); renderSheet();
+    return;
+  }
+  var x = TASKS.filter(function(t){ return t.id === id; })[0];
+  saveTask(Object.assign({}, x, { done: !k.done }));
+}
+function addTask(){
+  var t = String(addDraft.t || '').trim();
+  if (!t){ SFX.no(); $('tk-err').textContent = 'Say what the task is.'; $('tk-t').focus(); return; }
+  SFX.ok();
+  closeSheet();
+  saveTask({ id: newId(), t: t, who: addDraft.who, when: addDraft.when, done: false }, true);
 }
 
 var FORECAST_SPEND_RULE = 'Spending more than that lowers these figures. Spending less does not raise them ' +
@@ -2692,37 +2926,6 @@ function noticeOpen(short){
   if (!n || !n.id || !n.body || store.get('runway-notice') === n.id) return null;
   return short || n.always ? n : null;
 }
-function actHtml(){
-  var fx = fixes(), n = noticeOpen(!!fx);
-  if (!fx && !n) return '';
-  var html = '<p class="eyebrow">' + (fx ? 'Needs a decision' : 'A note') + '</p>';
-  if (n) html += '<p class="note"><span class="by">From ' + esc(n.from || PLAN.people.other) + '</span>' + esc(n.body) + '</p>' +
-    (fx ? '' : '<button class="ok" data-fix="notice">Got it</button>');
-  if (fx){
-    var m = fx.now.month, br = m.bridged;
-    html += '<h3>' + esc(m.label) + ' is ' + esc(fmt(fx.now.by)) + ' short</h3>' +
-      '<p class="deck">' + (br ? 'even with ' + esc(PLAN.bridge.by) + '’s ' + esc(fmt(br)) + '. ' : '') +
-      (fx.aLeft && (!fx.b || fx.bLeft) ? 'Nothing below closes all of it; each gets closer.' : 'Either of these closes it:') + '</p>';
-    var cut = cents(flexTotal(S) - flexTotal(fx.a));
-    html += optHtml('a', 'Spend ' + fmt(cut) + ' less a month',
-      PLAN.flex.map(function(f){ return f.label + ' ' + fmt(fx.a[f.id]); }).join(' · ') +
-      ' (now ' + fmt(flexTotal(S)) + ')', fx.aLeft);
-    if (fx.b){
-      var subsCut = sum(fx.paused), extra = cents(flexTotal(S) - flexTotal(fx.b));
-      html += optHtml('b', 'Pause ' + inWords(fx.paused.length) + (fx.paused.length === 1 ? ' subscription' : ' subscriptions') +
-        (extra ? ', spend ' + fmt(extra) + ' less' : ''),
-        fx.paused.map(function(s){ return s.name; }).join(', ') + ' · ' + fmt(subsCut) + ' a month', fx.bLeft);
-    }
-    html += '<button class="link" data-sheet="adjust"><span>Make my own mix</span><span class="n">›</span></button>';
-    if (n) html += '<button class="ok" data-fix="notice">Hide the note</button>';
-  }
-  return html + alertsLine();
-}
-function optHtml(k, title, sub, left){
-  return '<div class="row"><span class="grow"><b>' + esc(title) + '</b><span class="sub">' + esc(sub) +
-    (left ? ' · still ' + esc(fmt(left.by)) + ' short' : '') + '</span></span>' +
-    '<button class="pill" data-fix="' + k + '">Use this</button></div>';
-}
 function useFix(k){
   var fx = fixes();
   if (!fx) return;
@@ -2731,6 +2934,7 @@ function useFix(k){
   var tasks = S.tasks;
   S = Object.assign({}, st, { tasks: tasks });
   SFX.compute();
+  if (sheetKind === 'fix') closeSheet();
   push();
   render();
 }
@@ -2772,10 +2976,9 @@ async function alertsOn(){
   await checkAlerts();
 }
 function alertsLine(){
-  if (alertErr) return '<p class="status warn">Alerts did not turn on. Try again in a moment.</p>';
-  if (alerts === 'off') return '<div class="row"><span class="grow"><b>Get alerts</b><span class="sub">A message on this phone when ' +
-    esc(PLAN.people.other) + ' changes something</span></span><button class="pill" data-fix="alerts">Turn on</button></div>';
-  if (alerts === 'ios') return '<p class="small" style="padding:10px 0">For alerts on this iPhone: Share › Add to Home Screen, then open Runway from there.' +
+  if (alertErr) return '<p class="o-sm" style="color:var(--over)">Alerts did not turn on. Try again in a moment.</p>';
+  if (alerts === 'off') return oRow('Get alerts', 'Turn on', 'data-fix="alerts"', '', 'When ' + PLAN.people.other + ' changes something');
+  if (alerts === 'ios') return '<p class="o-foot">For alerts on this iPhone: Share › Add to Home Screen, then open Runway from there.' +
     ' If it asks for a code: <b>' + esc(CODE) + '</b></p>';
   return '';
 }
@@ -2785,7 +2988,7 @@ function alertsLine(){
 function setManifest(){
   if (!CODE) return;
   var base = location.origin + location.pathname.replace(/[^/]*$/, '');
-  var m = { name:'Runway', short_name:'Runway', display:'standalone', background_color:'#021006', theme_color:'#021006',
+  var m = { name:'Runway', short_name:'Runway', display:'standalone', background_color:'#07130c', theme_color:'#07130c',
     scope: base, id: base, start_url: base + '?c=' + CODE + (ME ? '&me=' + encodeURIComponent(ME) : ''),
     icons: [{ src: base + 'icon-192.png', sizes:'192x192', type:'image/png' },
             { src: base + 'icon-512.png', sizes:'512x512', type:'image/png', purpose:'any maskable' }] };
@@ -2797,86 +3000,9 @@ function statusHtml(){
   return st ? '<p class="status' + (st.warn ? ' warn' : '') + '">' + esc(st.text) + '</p>' : '';
 }
 
-var WORDS = ['no','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve',
-  'thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen','twenty'];
-function inWords(n){ return n <= 20 ? WORDS[n] : String(n); }
-
-/* The figure, then the sentence that says what it is. */
-function heroHtml(e){
-  if (e.pockets && e.index > 0) return pocketHeroHtml(e);
-  var over = e.left < 0;
-  var fig = fmtAmt(Math.abs(e.left));
-  var days = e.daysLeft > 0
-    ? 'with <b>' + inWords(e.daysLeft) + (e.daysLeft === 1 ? ' day' : ' days') + '</b> to go'
-    : 'and the month is over';
-  var pace = paceOf(e);
-  /* Until something is spent the pace only repeats the allowance, so it waits. */
-  var paceCell = e.spent > 0
-    ? '<div><span class="v ' + (pace >= 0 ? 'good' : 'over') + '">' + esc(fmtAmt(Math.abs(pace))) + '</span>' +
-        '<span class="k">' + (pace >= 0 ? 'less than planned so far' : 'more than planned so far') + '</span></div>'
-    : '<div><span class="v">' + esc(fmtAmt(e.spent)) + '</span><span class="k">spent so far</span></div>';
-  return '<p class="eyebrow ink">Everyday spending · ' + esc(e.label) + '</p>' +
-    '<p class="fig-xl' + (fig.length > 6 ? ' long' : '') + (over ? ' over' : '') + '" style="margin-top:10px">' + esc(fig) + '</p>' +
-    '<p class="deck">' + (over ? 'over the budget' : 'left to spend') + ' on ' + esc(flexWords()) + ', ' + days + '.</p>' +
-    '<div class="stats">' +
-      '<div><span class="v">' + (e.perDay !== null ? esc(fmtAmt(cents(e.perDay))) : '—') + '</span>' +
-        '<span class="k">a day you can spend</span></div>' +
-      paceCell +
-    '</div>' + statusHtml();
-}
-/* With the pockets linked the figure is what they hold, not a sum worked out. */
-function pocketHeroHtml(e){
-  var left = e.pocketLeft, over = left < 0, fig = fmtAmt(Math.abs(left));
-  var days = e.daysLeft > 0
-    ? 'with <b>' + inWords(e.daysLeft) + (e.daysLeft === 1 ? ' day' : ' days') + '</b> to go'
-    : 'and the month is over';
-  var all = e.pockets === e.cats.length;
-  var fromPockets = cents(e.cats.reduce(function(t, c){ return t + (c.card || 0); }, 0));
-  return '<p class="eyebrow ink">Everyday spending · ' + esc(e.label) + '</p>' +
-    '<p class="fig-xl' + (fig.length > 6 ? ' long' : '') + (over ? ' over' : '') + '" style="margin-top:10px">' + esc(fig) + '</p>' +
-    '<p class="deck">' + (over ? 'short ' : 'left ') + (all ? 'in your ' + esc(andList(PLAN.flex.map(function(f){ return f.label; }))) + ' pockets' : 'for ' + esc(flexWords())) +
-      ', ' + days + '.</p>' +
-    '<div class="stats">' +
-      '<div><span class="v">' + (left > 0 && e.daysLeft > 0 ? esc(fmtAmt(cents(left / e.daysLeft))) : '—') + '</span>' +
-        '<span class="k">a day you can spend</span></div>' +
-      '<div><span class="v">' + esc(fmtAmt(fromPockets)) + '</span><span class="k">paid from the pockets this month</span></div>' +
-    '</div>' +
-    (e.outside > 0 ? '<p class="status warn">' + esc(fmtAmt(e.outside)) + ' went on everyday things from the main account, not a pocket.</p>' : '') +
-    statusHtml();
-}
 /* "food, going out and misc", from the plan's flex lines. */
 function flexWords(){ return andList(PLAN.flex.map(function(f){ return f.label.toLowerCase(); })); }
 
-/* Figures in the table drop the currency sign; the column heads say what they are. */
-function bare(v){ return fmtAmt(v).replace(CUR, ''); }
-
-function catsHtml(e){
-  var first = e.index === 0;
-  var totalLeft = e.pockets && !first ? e.pocketLeft : e.left;
-  var rows = e.cats.map(function(c){
-    return '<div class="lg-r"><span>' + esc(c.label) + '</span>' +
-      '<span class="b">' + (first ? '—' : esc(bare(c.budget))) + '</span>' +
-      '<span>' + esc(bare(c.spent)) + '</span>' +
-      '<span' + (!first && c.left < 0 ? ' class="over"' : '') + '>' + (first ? '—' : esc(bare(c.left))) + '</span></div>';
-  }).join('');
-  if (e.other) rows += '<div class="lg-r"><span>Other</span><span class="b">—</span><span>' + esc(bare(e.other)) + '</span><span>—</span></div>';
-  if (hasBank()) rows += '<div class="lg-r"><span>' + (e.pockets ? 'Not from a pocket' : 'Card &amp; bank') + '</span><span class="b">—</span><span>' +
-    esc(bare(e.pockets ? e.outside : e.bank)) + '</span><span>—</span></div>';
-  if (e.legacy) rows += '<div class="lg-r"><span>Earlier</span><span class="b">—</span><span>' + esc(bare(e.legacy)) + '</span><span>—</span></div>';
-  if (e.income) rows += '<div class="lg-r"><span>Money in</span><span class="good">+' + esc(bare(e.income)) + '</span><span>—</span><span>—</span></div>';
-  return '<div class="ledger">' +
-    '<div class="lg-h"><span>' + (first ? 'Since ' + esc(shortDate(PLAN.asOf)) : '') + '</span><span>BUDGET</span><span>SPENT</span><span>' + (e.pockets && !first ? 'IN POCKET' : 'LEFT') + '</span></div>' +
-    rows +
-    '<div class="lg-r total"><span>Total</span><span class="b">' + esc(bare(e.total)) + '</span>' +
-      '<span>' + esc(bare(e.spent)) + '</span><span' + (totalLeft < 0 ? ' class="over"' : '') + '>' + esc(bare(totalLeft)) + '</span></div>' +
-    (hasBank() ? '<button class="link" data-pays="everyday"><span>Everyday payments this month</span>' +
-      '<span class="n">' + bankIn(e.index).filter(function(c){ return c.counts && c.b === 'everyday'; }).length + ' ›</span></button>' : '') +
-    '<button class="link" data-go="spends"><span>' +
-      (hasBank() ? (e.count ? 'Cash entered this month' : 'No cash entered this month')
-                 : (e.count ? 'Every entry this month' : 'No entries yet this month')) + '</span>' +
-      '<span class="n">' + (e.count ? e.count + ' ›' : '') + '</span></button>' +
-  '</div>';
-}
 
 function shortDate(d){
   var p = ymdParts(d);
@@ -2890,45 +3016,7 @@ function dayLabel(d){
   return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' });
 }
 
-function spendsHeroHtml(e){
-  return '<p class="fig">' + esc(fmtAmt(e.logged)) + '</p>' +
-    '<p class="deck">spent in ' + esc(e.label) + (e.index === 0 ? ' since ' + esc(shortDate(PLAN.asOf)) : '') +
-      ', ' + esc(fmtLeft(e.left)) + (e.left < 0 ? '' : ' left') + ' of ' + esc(fmtAmt(e.total)) + '.</p>' +
-    statusHtml() +
-    (hasBank() ? '<p class="small" style="margin-top:10px">Cash only: card and bank payments come in from the bank by themselves.</p>' : '') +
-    '<button class="enter" data-sheet="log" style="margin-top:18px">' + (hasBank() ? 'Enter cash' : 'New entry') + '</button>';
-}
 
-/* ── the bank on screen ── */
-
-function todayBankHtml(env){
-  if (hasBank()){
-    var total = inTheBank(), when = BANK.synced ? 'synced ' + ago(BANK.synced) : 'not synced yet';
-    var names = BANK.conns.map(function(c){ return bankShort(c.bank); }).join(' + ');
-    var warn = BANK.conns.some(function(c){ return consentNote(c).warn; });
-    var fresh = classified().filter(isNew).length;
-    var toSort = classified().filter(function(c){ return c.b === 'check' && !c.hidden; }).length;
-    var monthN = env ? bankIn(env.index).filter(function(c){ return !c.hidden; }).length : 0;
-    return '<button class="row" data-go="bank" style="padding-top:0"><span class="grow"><b>In the bank</b>' +
-        '<span class="sub">' + esc(names + ' · ' + (warn ? 'needs attention' : when)) + '</span></span>' +
-        '<span class="amt">' + (total === null ? '—' : esc(fmt(total))) + '</span><span class="chev">›</span></button>' +
-      (hasPockets() ? '' : '<button class="row" data-go="bank"><span class="grow"><b>Link the pockets</b>' +
-        '<span class="sub">Say which account is ' + esc(flexWords()) + '</span></span><span class="chev">›</span></button>') +
-      '<button class="row" data-pays="' + (toSort ? 'check' : 'all') + '"><span class="grow"><b>Payments</b>' +
-        '<span class="sub">' + esc(toSort ? toSort + (toSort === 1 ? ' big payment' : ' big payments') + ' to sort'
-          : fresh ? fresh + ' new since you last looked' : (env ? monthN + ' in ' + env.label : 'from the bank')) + '</span></span>' +
-        (fresh ? '<span class="newdot"></span>' : '') + '<span class="chev">›</span></button>';
-  }
-  var planRow = '<div class="row" style="padding-top:0"><span class="grow"><b>In the bank</b>' +
-    '<span class="sub">As of ' + esc(shortDate(PLAN.asOf)) + '</span></span>' +
-    '<span class="amt">' + esc(fmt(PLAN.start)) + '</span></div>' + manualRowsHtml();
-  if (BANKINFO.conns && !bankKey){
-    return planRow + '<button class="row" data-pin="unlock"><span class="grow"><b>The bank is connected</b>' +
-      '<span class="sub">Enter the PIN to see it on this phone</span></span><span class="chev">›</span></button>';
-  }
-  return planRow + '<button class="row" data-go="bank"><span class="grow"><b>Connect the bank</b>' +
-    '<span class="sub">Balances and payments, by themselves</span></span><span class="chev">›</span></button>';
-}
 
 /* This month in four buckets: what the plan expects against what the bank shows. */
 function monthBucketsHtml(ci){
@@ -2962,47 +3050,69 @@ function sortLine(list){
 }
 
 function bankScreenHtml(){
-  var msg = bankMsg ? '<p class="msg">' + esc(bankMsg) + '</p>' : '';
+  var msg = bankMsg ? '<p class="o-sm" style="padding-top:8px">' + esc(bankMsg) + '</p>' : '';
+  var man = manualAccounts(), foot = '<p class="o-foot">Read-only · Runway can’t move money</p>';
+  var savings = man.length ? oGrp('Savings', fmt(cents(man.reduce(function(t, m){ return t + manualBal(m); }, 0)))) + manualRowsHtml() : '';
   if (!bankKey){
     var hasPin = BANKINFO.pin;
-    return '<p class="fig sm">Bank</p>' +
-      '<p class="deck">' + (BANKINFO.conns ? 'A bank is connected. Enter the PIN to see it on this phone.'
-        : hasPin ? 'Enter the PIN, then connect a bank.'
-        : 'Choose a PIN first. Anyone who opens Runway on another phone needs it to see the bank.') + '</p>' + msg +
-      '<button class="enter" data-pin="' + (hasPin ? 'unlock' : 'set') + '" style="margin-top:22px">' +
-        (hasPin ? 'Enter the PIN' : 'Choose a PIN') + '</button>';
+    return oHero('In the bank · ' + shortDate(PLAN.asOf), fmt(PLAN.start)) +
+      oAmb(BANKINFO.conns ? 'Enter the PIN to see the bank' : hasPin ? 'Enter the PIN, then connect' : 'Choose a PIN first',
+        'data-pin="' + (hasPin ? 'unlock' : 'set') + '"') + msg + savings + foot;
   }
-  var html = '';
-  if (hasBank()){
-    var total = inTheBank();
-    html += '<p class="lbl">In the bank</p><p class="fig sm">' + (total === null ? '—' : esc(fmt(total))) + '</p>' +
-      '<p class="deck">' + (BANK.synced ? 'Synced ' + esc(ago(BANK.synced)) + '. ' : '') +
-        'It syncs four times a day by itself.</p>' + msg +
-      '<div class="acts"><button class="ghost" data-act="sync">Sync now</button></div>';
-    BANK.conns.forEach(function(c){
-      var note = consentNote(c);
-      html += '<div class="card"><p class="eyebrow ink">' + esc(c.bank) + '</p>' +
-        (note.text ? '<p class="status' + (note.warn ? ' warn' : '') + '" style="margin-top:4px">' + esc(note.text) + '</p>' : '') +
-        (c.accounts || []).map(function(a){
-          var other = a.cur && a.cur !== 'EUR';
-          var pk = PLAN.flex.filter(function(x){ return x.id === pocketOfAcct(a.k); })[0];
-          return '<div class="row' + (other ? ' off' : '') + '"><span class="grow"><b>' + esc(pk ? pk.label + ' pocket' : a.name || 'Account') + '</b>' +
-            '<span class="sub">' + esc([pk ? a.name : '', a.iban4 ? '•• ' + a.iban4 : '', other ? a.cur + ', not counted' : ''].filter(Boolean).join(' · ')) + '</span></span>' +
-            '<span class="amt">' + (a.bal === null || a.bal === undefined ? '—' : other ? esc(a.bal + ' ' + a.cur) : esc(fmt(a.bal, true))) + '</span></div>' +
-            (other ? '' : pocketPickHtml(a));
-        }).join('') +
-        '<div class="acts">' + (note.warn ? '<button class="solid" data-connect="' + esc(c.bank) + '" data-country="' + esc(c.country) + '">Reconnect</button>' : '') +
-          '<button class="ghost" data-disconnect="' + esc(c.id) + '">Disconnect</button></div></div>';
+  if (!hasBank()) return oHero('In the bank · ' + shortDate(PLAN.asOf), fmt(PLAN.start)) + msg + savings +
+    oGrp('Connect a bank') + bankPickerHtml() + oRow('Manage', '', 'data-sheet="bankmanage"') + foot;
+  var total = inTheBank(), html = oHero('In the bank', total === null ? '—' : fmt(total));
+  BANK.conns.forEach(function(c){
+    var note = consentNote(c);
+    if (note.warn) html += '<button class="o-amb" type="button" data-connect="' + esc(c.bank) + '" data-country="' + esc(c.country) + '"><span>▲ ' +
+      esc(bankShort(c.bank) + ' · ' + note.text.replace(/^Access ends (.*) · reconnect to keep it$/, 'reconnect by $1')) + '</span><span class="lead"></span><span>›</span></button>';
+  });
+  html += msg;
+  var pockets = [], current = [], other = [];
+  BANK.conns.forEach(function(c){
+    var many = (c.accounts || []).filter(function(a){ return !a.cur || a.cur === 'EUR'; }).length > 1;
+    (c.accounts || []).forEach(function(a){
+      var pk = PLAN.flex.filter(function(x){ return x.id === pocketOfAcct(a.k); })[0];
+      if (a.cur && a.cur !== 'EUR') other.push({ name: bankShort(c.bank) + ' ' + a.cur, v: a.bal === null || a.bal === undefined ? '—' : Number(a.bal).toFixed(2) + ' ' + a.cur });
+      else if (pk) pockets.push({ name: pk.label, bal: a.bal, bank: bankShort(c.bank) });
+      else current.push({ name: bankShort(c.bank) + (many && a.iban4 ? ' ··' + a.iban4 : ''), bal: a.bal });
     });
-  } else {
-    html += '<p class="fig sm">Bank</p><p class="deck">Connect a bank to see its balance and payments here. ' +
-      'You log in at the bank itself; Runway can only read, never pay.</p>' + msg;
+  });
+  var tot = function(list){ return fmt(cents(list.reduce(function(t, x){ return t + (Number(x.bal) || 0); }, 0)), true); };
+  var bal = function(v){ return v === null || v === undefined ? '—' : fmt(v, true); };
+  if (pockets.length) html += oGrp('Pockets · ' + pockets.map(function(p){ return p.bank; }).filter(function(b, i, l){ return l.indexOf(b) === i; }).join(' + '), tot(pockets)) +
+    pockets.map(function(p){ return oRow(p.name, bal(p.bal)); }).join('');
+  if (current.length) html += oGrp('Current', tot(current)) + current.map(function(p){ return oRow(p.name, bal(p.bal)); }).join('');
+  html += savings;
+  if (other.length) html += oGrp('Not counted') + other.map(function(p){ return oRow(p.name, p.v, '', 'dim'); }).join('');
+  if (bankAdd) html += oGrp('Connect another bank') + bankPickerHtml();
+  return html + oRow('Manage', '', 'data-sheet="bankmanage"') + foot;
+}
+var bankAdd = false;   // the bank list is open on the Bank screen
+/* The bank's settings, out of the way: which account is which pocket, the
+   connections, the PIN. */
+function bankManageHtml(){
+  var html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">Manage</h2><span></span></div>';
+  if (bankKey && hasBank()){
+    html += oGrp('Pockets');
+    BANK.conns.forEach(function(c){
+      (c.accounts || []).forEach(function(a){
+        if (a.cur && a.cur !== 'EUR') return;
+        html += '<div class="o-row o-two"><span class="top"><span>' + esc(bankShort(c.bank) + (a.iban4 ? ' ··' + a.iban4 : '')) + '</span>' +
+          '<span class="lead"></span><span class="v">' + (a.bal === null || a.bal === undefined ? '—' : esc(fmt(a.bal, true))) + '</span></span>' +
+          pocketPickHtml(a) + '</div>';
+      });
+    });
+    html += oGrp('Banks') + BANK.conns.map(function(c){
+      var note = consentNote(c);
+      return oRow(bankShort(c.bank), note.text.replace(/^Access until /, 'to '), '', note.warn ? 'over' : '') +
+        '<div class="acts">' + (note.warn ? '<button class="solid" data-connect="' + esc(c.bank) + '" data-country="' + esc(c.country) + '">Reconnect</button>' : '') +
+        '<button class="ghost" data-disconnect="' + esc(c.id) + '">Disconnect</button></div>';
+    }).join('');
   }
-  if (manualAccounts().length) html += '<div class="card tight"><p class="eyebrow ink" style="padding-top:14px">Entered by hand</p>' + manualRowsHtml() + '</div>';
-  html += '<div class="card"><p class="eyebrow ink">' + (hasBank() ? 'Connect another bank' : 'Connect a bank') + '</p>' + bankPickerHtml() + '</div>';
-  html += '<div class="card"><button class="textbtn" data-pin="change">Change the PIN</button><br>' +
-    '<button class="textbtn" data-act="forget">Forget this phone</button>' +
-    '<p class="small" style="margin-top:8px">Account information only: balances and booked payments. Nothing in Runway can move money.</p></div>';
+  if (bankKey) html += oRow('+ Connect a bank', '', 'data-act="bank-add"');
+  html += oGrp('This phone') + (bankKey ? oRow('Change the PIN', '', 'data-pin="change"') + oRow('Forget this phone', '', 'data-act="forget"')
+    : oRow(BANKINFO.pin ? 'Enter the PIN' : 'Choose a PIN', '', 'data-pin="' + (BANKINFO.pin ? 'unlock' : 'set') + '"'));
   return html;
 }
 
@@ -3120,19 +3230,6 @@ function paymentRowHtml(c){
     '<span class="amt' + (credit ? ' good' : '') + '">' + (credit ? '+' : '') + esc(fmtAmt(Math.abs(t.amt))) + '</span></button>';
 }
 
-function spendRowsHtml(e){
-  var list = newestFirst(e.entries);
-  if (!list.length) return '<p class="deck" style="padding:12px 0">Nothing entered this month yet.</p>';
-  return list.map(function(s){
-    var bits = s.note ? [dayLabel(s.d), flexLabel(s.cat)] : [dayLabel(s.d)];
-    if (s.by && s.by !== ME) bits.push(s.by);
-    if (s.pending) bits.push(sending && !sendFailed ? 'saving…' : 'not sent yet');
-    return '<div class="row"><span class="grow"><b>' + esc(s.note || flexLabel(s.cat)) + '</b>' +
-      '<span class="sub">' + esc(bits.join(' · ')) + '</span></span>' +
-      '<span class="amt' + (isIn(s) ? ' good' : '') + '">' + (isIn(s) ? '+' : '') + fmtAmt(s.amt) + '</span>' +
-      '<button class="del" data-del="' + esc(s.id) + '" aria-label="Delete ' + esc(fmtAmt(s.amt) + ' ' + (s.note || flexLabel(s.cat))) + '">×</button></div>';
-  }).join('');
-}
 
 function renderUndo(){
   var box = $('undo');
@@ -3166,7 +3263,7 @@ document.addEventListener('click', function(e){
   if (fixBtn){
     e.preventDefault();
     var fk = fixBtn.dataset.fix;
-    if (fk === 'notice'){ store.set('runway-notice', PLAN.notice && PLAN.notice.id); return render(); }
+    if (fk === 'notice'){ store.set('runway-notice', PLAN.notice && PLAN.notice.id); if (sheetKind === 'fix') closeSheet(); return render(); }
     if (fk === 'alerts') return alertsOn();
     return useFix(fk);
   }
@@ -3192,8 +3289,21 @@ document.addEventListener('click', function(e){
     if (d.disconnect) return disconnectBank(d.disconnect);
     return;
   }
+  var tk = e.target.closest('[data-tick],[data-topen],[data-tdel],[data-twho],[data-twhen]');
+  if (tk){
+    e.preventDefault();
+    var td = tk.dataset;
+    if (td.tick) return tickTask(td.tick);
+    if (td.topen){ taskDraft = { id: td.topen }; return openSheet('task'); }
+    if (td.tdel) return deleteTask(td.tdel);
+    if (td.twho !== undefined){ addDraft.who = td.twho; return renderSheet(); }
+    if (td.twhen !== undefined){ addDraft.when = td.twhen; return renderSheet(); }
+  }
   var b = e.target.closest('[data-go],[data-sheet],[data-back],[data-open],[data-act],[data-cat],[data-day],[data-del],[data-key],[data-dir],[data-man]');
   if (!b) return;
+  if (b.dataset.sheet === 'addtask'){ e.preventDefault(); addDraft = { t: '', who: lc(PLAN.people.owner), when: '' }; return openSheet('addtask'); }
+  if (b.dataset.act === 'add-task'){ e.preventDefault(); return addTask(); }
+  if (b.dataset.act === 'bank-add'){ e.preventDefault(); bankAdd = true; closeSheet(); if (!BANKS_LIST) loadBanks(); return render(); }
   if (b.dataset.man){ e.preventDefault(); manDraft = { id: b.dataset.man }; return openSheet('manual'); }
   if (b.dataset.act === 'save-manual'){ e.preventDefault(); return saveManual(); }
   if (b.dataset.act === 'pin-go'){ e.preventDefault(); return pinSubmit(); }
@@ -3271,6 +3381,10 @@ $('sheet').addEventListener('keydown', function(e){
     e.preventDefault();
     saveSpend();
   }
+  if (sheetKind === 'addtask' && e.key === 'Enter' && e.target.id === 'tk-t'){
+    e.preventDefault();
+    addTask();
+  }
   if (sheetKind === 'manual' && e.key === 'Enter' && e.target.id === 'lg-amt'){
     e.preventDefault();
     saveManual();
@@ -3300,6 +3414,7 @@ document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && shee
 document.addEventListener('input', function(e){
   var el = e.target;
   if (el.id === 'pay-q'){ payFilter.q = el.value; $('p-rows').innerHTML = paymentRowsHtml(); }
+  if (el.id === 'tk-t' && addDraft){ addDraft.t = el.value; var te = $('tk-err'); if (te) te.textContent = ''; }
   if (el.id === 'bank-q'){
     bankQuery = el.value;
     var q = normText(bankQuery).join(' ');
@@ -3334,6 +3449,7 @@ document.addEventListener('change', function(e){
     if (el.checked){ if (on.indexOf(el.value) === -1) on.push(el.value); }
     else on = on.filter(function(x){ return x !== el.value; });
     S.subs = on.sort();
+    SFX.compute();
     push(); render();
   }
 });
@@ -3389,7 +3505,7 @@ async function start(){
 
   var cached = store.get(cacheKey());
   if (cached && cached.plan){
-    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends, manual:cached.manual });
+    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends, manual:cached.manual, tasks:cached.tasks });
     $('boot').hidden = true; $('app').hidden = false;
     go(location.hash.slice(1) || 'today', false);
   }

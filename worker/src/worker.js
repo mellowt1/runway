@@ -15,8 +15,10 @@
  *   manual  newer balances for the accounts the plan lists as entered by hand (a
  *           savings account no bank connection covers), typed in by the reader. Also
  *           a fact, so also out of reach of "back to the plan".
+ *   tasks   to-dos either person adds, each for one of them, with its tick. The
+ *           plan's own tasks stay in the plan; their ticks stay in state.
  *
- * Anyone with the code can read all of them and write state, spends and manual. That is the
+ * Anyone with the code can read all of them and write state, spends, manual and tasks. That is the
  * point: one person sends the other a link, the other moves a slider, and the next
  * poll on the first phone shows it. No accounts. No figures in the repo.
  *
@@ -27,13 +29,17 @@
  *   POST   /api/spend/:code        <- { by, spend }       -> { ok, spend, rev }     upsert by spend.id
  *   DELETE /api/spend/:code/:id    <- { by }              -> { ok, removed, rev }
  *   POST   /api/manual/:code       <- { by, id, bal, asOf } -> { ok, entry, rev }
+ *   POST   /api/task/:code         <- { by, task }        -> { ok, task, rev }      upsert by task.id
+ *   DELETE /api/task/:code/:id     <- { by }              -> { ok, removed, rev }
+ *
+ * A task added for someone sends an alert to every phone but the adder's.
  *
  * Alerts (Web Push) are in alerts.js.
  *
  * The plan GET also carries `bank: { pin, conns, rev }` so a phone knows when to fetch
  * the bank side. That side (a PIN, the bank connections, the sync) is in bank.js.
  *
- * State, spends and manual each keep their own `rev`, bumped on every write. The plan GET
+ * State, spends, manual and tasks each keep their own `rev`, bumped on every write. The plan GET
  * returns their sum: both only ever increase, so the sum still tells a client
  * "something changed" cheaply. The POST/DELETE responses carry their own doc's rev.
  */
@@ -55,6 +61,7 @@ const SPEND_ID = /^[a-z0-9]{6,16}$/;
 const SPEND_CAT = /^[a-z0-9_-]{1,24}$/;
 const MANUAL_ID = /^[a-z0-9_-]{1,24}$/;
 const MAX_MANUAL = 12;
+const MAX_TASKS = 100;
 
 function cors(request) {
   const o = request.headers.get('Origin') || '';
@@ -150,6 +157,7 @@ async function handlePlan(request, env, code) {
     const st = (await readDoc(env, `state:${code}`)) || {};
     const sp = (await readDoc(env, `spends:${code}`)) || {};
     const md = (await readDoc(env, `manual:${code}`)) || {};
+    const tk = (await readDoc(env, `tasks:${code}`)) || {};
     const bank = await bankSummary(env, code);
     return json(
       {
@@ -157,9 +165,10 @@ async function handlePlan(request, env, code) {
         state: st.state || null,
         updated: st.updated || null,
         by: st.by || null,
-        rev: (st.rev || 0) + (sp.rev || 0) + (md.rev || 0),
+        rev: (st.rev || 0) + (sp.rev || 0) + (md.rev || 0) + (tk.rev || 0),
         spends: Array.isArray(sp.list) ? sp.list : [],
         manual: md.set || {},
+        tasks: Array.isArray(tk.list) ? tk.list : [],
         bank,
       },
       request
@@ -295,6 +304,55 @@ async function handleManual(request, env, code) {
   return json({ ok: true, entry, rev: rec.rev }, request);
 }
 
+function cleanTask(t) {
+  if (!t || typeof t !== 'object') return null;
+  const id = String(t.id || '');
+  const title = String(t.t || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 60).trim();
+  const who = cleanBy(t.who).toLowerCase();
+  const when = String(t.when || '').replace(/[^\p{L}\p{N} .:-]/gu, '').trim().slice(0, 20);
+  if (!SPEND_ID.test(id) || !title || !who) return null;
+  return { id, t: title, who, when, done: !!t.done };
+}
+
+// Tasks are their own document, like spends: no state write can touch them.
+async function handleTask(request, env, code, id) {
+  const key = `tasks:${code}`;
+  const body = await request.json().catch(() => null);
+  const by = cleanBy(body && body.by);
+
+  if (request.method === 'POST' && !id) {
+    const task = cleanTask(body && body.task);
+    if (!task) return json({ error: 'task required: id, t, who' }, request, 400);
+    const prev = (await readDoc(env, key)) || {};
+    const list = Array.isArray(prev.list) ? prev.list : [];
+    const old = list.find((x) => x && x.id === task.id);
+    if (!old && list.length >= MAX_TASKS) return json({ error: 'too many tasks' }, request, 413);
+    task.by = old ? old.by : by || null;
+    task.at = old ? old.at : new Date().toISOString();
+    const rec = { list: list.filter((x) => x && x.id !== task.id).concat([task]), rev: (prev.rev || 0) + 1 };
+    await env.RUNWAY_KV.put(key, JSON.stringify(rec), { expirationTtl: TTL });
+    let alerted = null;
+    if (!old && by) {
+      const forWho = task.who.charAt(0).toUpperCase() + task.who.slice(1);
+      alerted = await notify(env, code, { title: 'Runway', body: `${by} added a task for ${forWho}: ${task.t}` }, null, by);
+    }
+    return json({ ok: true, task, rev: rec.rev, alerted }, request);
+  }
+
+  if (request.method === 'DELETE' && id) {
+    if (!SPEND_ID.test(id)) return json({ error: 'bad id' }, request, 400);
+    const prev = (await readDoc(env, key)) || {};
+    const before = Array.isArray(prev.list) ? prev.list : [];
+    const list = before.filter((x) => x && x.id !== id);
+    if (list.length === before.length) return json({ ok: true, removed: false, rev: prev.rev || 0 }, request);
+    const rec = { list, rev: (prev.rev || 0) + 1 };
+    await env.RUNWAY_KV.put(key, JSON.stringify(rec), { expirationTtl: TTL });
+    return json({ ok: true, removed: true, rev: rec.rev }, request);
+  }
+
+  return json({ error: 'method' }, request, 405);
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
@@ -321,6 +379,13 @@ export default {
       const code = sp[1].toLowerCase();
       if (!CODE.test(code)) return json({ error: 'bad code' }, request, 400);
       return handleSpend(request, env, code, sp[2] ? sp[2].toLowerCase() : null);
+    }
+
+    const tm = url.pathname.match(/^\/api\/task\/([a-z0-9]+)(?:\/([a-z0-9]+))?$/i);
+    if (tm) {
+      const code = tm[1].toLowerCase();
+      if (!CODE.test(code)) return json({ error: 'bad code' }, request, 400);
+      return handleTask(request, env, code, tm[2] ? tm[2].toLowerCase() : null);
     }
 
     const mn = url.pathname.match(/^\/api\/manual\/([a-z0-9]+)$/i);
