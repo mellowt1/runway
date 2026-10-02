@@ -446,6 +446,9 @@ input[type=range]::-moz-range-thumb{border-radius:0}
 .acts .solid{text-shadow:none}
 select{font:400 22px var(--serif)}
 .snd{font:400 11px var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);min-height:32px;padding:0}
+#hum{margin-left:14px}
+.ty-rest{visibility:hidden}
+.ty-cur{display:inline-block;width:.55em;height:.9em;margin-right:-.55em;vertical-align:-.08em;background:currentColor}
 .snd[aria-pressed="true"]{color:var(--ink)}
 .snd::before{content:"■ "}
 .snd[aria-pressed="false"]::before{content:"□ "}
@@ -529,7 +532,8 @@ details p{font:400 21px/1.2 var(--serif)}
   <section class="screen" id="s-today" hidden>
     <div class="mast">
       <div><p class="word">RUNWAY</p><p class="dateline" id="t-date"></p>
-        <button class="snd" id="snd" type="button" aria-pressed="true">Sound on</button></div>
+        <button class="snd" id="snd" type="button" aria-pressed="true">Sound on</button>
+        <button class="snd" id="hum" type="button" aria-pressed="false">Hum off</button></div>
       <button class="pill solid" data-sheet="log">New entry</button>
     </div>
     <div class="act" id="t-act" hidden></div>
@@ -1129,6 +1133,7 @@ async function poll(){
     }
     if ((data.rev||0) === REMOTE.rev){ if (bankMoved){ render(); renderSheet(); } return; }
     var keepPage = page;
+    if (data.by && data.by !== ME) SFX.incoming();
     applyRemote(data);
     page = keepPage;
     render();
@@ -1475,6 +1480,7 @@ async function tagWrite(bodies, msg, isUndo){
       /* Put the screen back the way the Worker has it. */
       back.forEach(applyTag);
       undoTag = null;
+      SFX.no();
       bankMsg = 'That change did not save. Check the connection and try again.';
       await pullBank();
       render(); renderSheet();
@@ -1508,6 +1514,7 @@ async function pinSubmit(){
   if ((d.mode === 'confirm' || d.mode === 'confirm-change') && p !== d.first){
     d.digits = ''; d.first = ''; d.mode = d.mode === 'confirm' ? 'set' : 'change';
     d.err = 'Those did not match. Choose it again.';
+    SFX.no();
     return renderSheet();
   }
   d.err = 'checking…'; renderSheet();
@@ -1518,6 +1525,7 @@ async function pinSubmit(){
   if (r.ok && r.data && r.data.key){
     bankKey = r.data.key;
     store.set(bankKeyName(), bankKey);
+    SFX.ok();
     var then = d.then;
     closeSheet();
     await pullBank();
@@ -1526,6 +1534,7 @@ async function pinSubmit(){
     return;
   }
   d.digits = '';
+  SFX.no();
   if (r.status === 423) d.err = 'Too many wrong tries. Locked until ' +
     new Date(r.data.until).toLocaleString('en-GB', { weekday:'short', hour:'2-digit', minute:'2-digit' }) + '.';
   else if (r.status === 429) d.err = 'Too many tries. Wait a minute.';
@@ -1558,12 +1567,13 @@ async function connectBank(name, country){
 }
 async function syncNow(){
   bankMsg = 'Syncing…';
+  SFX.sync();
   render();
   var r = null;
   try { r = await bankFetch('/api/bank/' + CODE + '/sync', { method:'POST' }); } catch(e){}
   if (r && r.ok && r.data.skipped) bankMsg = 'Synced ' + ago(r.data.synced) + '. It can sync again ten minutes after.';
   else if (r && r.ok) bankMsg = r.data.added ? r.data.added + ' new ' + (r.data.added === 1 ? 'payment.' : 'payments.') : 'Up to date.';
-  else bankMsg = 'The sync did not finish' + (r && r.data && r.data.errors && r.data.errors[0] ? ': ' + r.data.errors[0].kind.replace(/_/g, ' ') : '') + '.';
+  else { bankMsg = 'The sync did not finish' + (r && r.data && r.data.errors && r.data.errors[0] ? ': ' + r.data.errors[0].kind.replace(/_/g, ' ') : '') + '.'; SFX.no(); }
   await pullBank();
   render();
 }
@@ -1650,14 +1660,81 @@ function forecastBarsHtml(M){
 }
 
 /* ─────────────────────────── sound ───────────────────────────
-   MU-TH-UR's voice, made here in Web Audio: the readout chatter when a screen
-   comes up, a chunky key click on every press, a two-note chirp when something is
-   kept, a low buzz when something is refused. No recordings. The phone's silent
-   switch is honoured where Safari allows it (audioSession "ambient"), and the
-   choice is kept per phone. Audio can only start from a tap, so the first tap
-   wakes it. */
+   MU-TH-UR's voice. The first tap boots her (the Nostromo boot sequence); the
+   room hum under everything has its own switch and starts off. A screen coming
+   up chatters. The boot grid means she is computing: a sheet opening, the
+   Forecast screen, a slider let go, a fix used. Every press bips, the number
+   pads beep a tone per digit, a ticked task beeps, a kept change beeps, a
+   refused one buzzes; closing clicks, deleting chirps, "Back to the plan" wipes
+   with a burst of data, a bank sync prints, a change from the other person
+   comes in as four beeps, and a month below zero sounds the warning tone once
+   a day. The sounds are clips of the film's computer audio
+   in one sprite, sounds/mother.wav (the owner's choice, knowing a takedown could
+   remove it). Until the sprite has loaded, or if it can't, the core sounds are
+   made in Web Audio from the pitches and rates measured off it. The phone's
+   silent switch is honoured where Safari allows it (audioSession "ambient"),
+   the choice is kept per phone, and everything pauses while the app is hidden.
+   Audio can only start from a tap, so the first tap wakes it. */
 var SFX = (function(){
-  var ctx = null, out = null, on = store.get('runway-sound') !== false, last = 0, armed = false;
+  var ctx = null, out = null, clipOut = null, on = store.get('runway-sound') !== false, humOn = store.get('runway-hum') === true, last = 0, armed = false;
+  /* Where each clip sits in the sprite, [start, length] in seconds. A sound with
+     more than one take picks one at random, so repeats don't sound canned. */
+  var SPRITE = {"boot":[[0,2.08]],"hum":[[2.13,2.15]],"sheet":[[4.33,0.65],[5.03,0.65]],"screen":[[5.73,0.45],[6.23,0.45]],
+    "key":[[6.73,0.045],[6.825,0.045],[6.92,0.045],[7.015,0.045]],"ok":[[7.11,0.43]],"no":[[7.59,0.27]],"incoming":[[7.91,0.95]],
+    "alert":[[8.91,0.95]],"close":[[9.91,0.095]],"erase":[[10.055,0.63]],"sync":[[10.735,1.17]],"wipe":[[11.955,1.05]],"tick":[[13.055,0.155]],
+    "digit":[[13.26,0.06],[13.37,0.06],[13.48,0.06],[13.59,0.06],[13.7,0.06]]};
+  var LEVEL = { boot:0.16, hum:0.035, sheet:0.16, screen:0.16, key:0.12, ok:0.14, no:0.14, incoming:0.14, alert:0.15, close:0.12, erase:0.13,
+    sync:0.12, wipe:0.13, tick:0.13, digit:0.12 };
+  var raw = null, clips = null, decoding = false, booted = false, hum = null, hold = 0, alerted = false, wantAlert = false;
+  /* The sprite is fetched as the page loads, and decoded once the first tap has
+     made the audio context, so the boot can play straight away. */
+  function fetchSprite(){
+    if (!raw && on){
+      raw = fetch('sounds/mother.wav').then(function(r){ if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); });
+      raw.catch(function(){ raw = null; });
+    }
+    return raw;
+  }
+  fetchSprite();
+  function load(){
+    if (clips || decoding || !fetchSprite()) return;
+    decoding = true;
+    raw.then(function(b){
+      return new Promise(function(ok, no){ ctx.decodeAudioData(b.slice(0), ok, no); });
+    }).then(function(b){ clips = b; boot(); }, function(){ decoding = false; });
+  }
+  /* take: which take to play; left out, one at random. */
+  function clip(name, at, take){
+    if (!clips) return 0;
+    var takes = SPRITE[name], c = takes[take === undefined ? (Math.random() * takes.length) | 0 : take % takes.length];
+    var src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = clips; g.gain.value = LEVEL[name];
+    src.connect(g); g.connect(clipOut);
+    src.start(at || now() + 0.005, c[0], c[1]);
+    return c[1];
+  }
+  /* MOTHER wakes: the boot sequence once a visit, then the room hum. */
+  function boot(){
+    if (booted || !clips || !on) return;
+    booted = true;
+    var d = clip('boot');
+    last = now() + d;
+    startHum(d);
+    if (wantAlert){ alerted = true; wantAlert = false; store.set('runway-alerted', todayStr()); clip('alert', now() + d + 0.3); }
+  }
+  function startHum(delay){
+    if (hum || !clips || !on || !humOn) return;
+    var c = SPRITE.hum[0], src = ctx.createBufferSource(), g = ctx.createGain(), t = now() + (delay || 0);
+    src.buffer = clips; src.loop = true; src.loopStart = c[0]; src.loopEnd = c[0] + c[1];
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(LEVEL.hum, t + 1.5);
+    src.connect(g); g.connect(clipOut); src.start(t, c[0]);
+    hum = src;
+  }
+  function stopHum(){ if (hum){ try { hum.stop(); } catch(e){} hum = null; } }
+  document.addEventListener('visibilitychange', function(){
+    if (!ctx) return;
+    if (document.hidden) ctx.suspend(); else if (on) ctx.resume();
+  });
   function wake(){
     if (!on || !armed) return null;   // before the first tap a sound would only queue up
     if (!ctx){
@@ -1668,8 +1745,10 @@ var SFX = (function(){
       out = ctx.createGain(); out.gain.value = 0.11;
       var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200;
       out.connect(lp); lp.connect(ctx.destination);
+      clipOut = ctx.createGain(); clipOut.connect(ctx.destination);
     }
     if (ctx.state === 'suspended') ctx.resume();
+    load();
     return ctx;
   }
   function tone(type, freq, t, dur, vol){
@@ -1705,71 +1784,223 @@ var SFX = (function(){
     g.gain.linearRampToValueAtTime(0, t + dur);
     o.connect(bp); bp.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.01);
   }
+  /* A gate with soft edges, for the sounds below that are not tone() or buzz(). */
+  function gate(t, dur, vol){
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.003);
+    g.gain.setValueAtTime(vol, t + Math.max(0.004, dur - 0.005));
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    g.connect(out);
+    return g;
+  }
+  /* Ladder: a bright sawtooth chopped about 70 times a second. On a
+     spectrogram it is the rungs of harmonics in the Nostromo boot sequence. */
+  function ladder(t, dur, freq, vol){
+    var o = ctx.createOscillator(), lfo = ctx.createOscillator(), depth = ctx.createGain(), chop = ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.value = freq;
+    lfo.type = 'square'; lfo.frequency.value = 70;
+    chop.gain.value = 0.5; depth.gain.value = 0.5;
+    lfo.connect(depth); depth.connect(chop.gain);
+    o.connect(chop); chop.connect(gate(t, dur, vol));
+    o.start(t); lfo.start(t); o.stop(t + dur + 0.01); lfo.stop(t + dur + 0.01);
+  }
+  /* Warble: a high tone wobbling 21 times a second, the boot sequence's top line. */
+  function warble(t, dur, vol){
+    var o = ctx.createOscillator(), lfo = ctx.createOscillator(), dev = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = 2570;
+    lfo.type = 'triangle'; lfo.frequency.value = 21; dev.gain.value = 110;
+    lfo.connect(dev); dev.connect(o.frequency);
+    o.connect(gate(t, dur, vol));
+    o.start(t); lfo.start(t); o.stop(t + dur + 0.01); lfo.stop(t + dur + 0.01);
+  }
   function busy(){ return now() >= last - 0.1; }   // one readout at a time
   function now(){ return ctx.currentTime; }
-  /* Screen readout: fast pulse train, about 45 a second, pulses and gaps of
-     5 to 25 ms, pitch wandering around 140 Hz. */
+  /* Pitches measured off the boot sequence and the 2037 interface. */
+  var RUNG = [760, 760, 1170], BED = 490, BUZZ = 161, BEEP = [2020, 2620, 2980];
+  /* Screen readout: a low buzz pulsing every 8 to 24 ms, with a ladder rung
+     every 120 ms or so. */
   function chatter(len){
     if (!wake() || !busy()) return;
-    var t = now() + 0.01, end = t + (len || 0.5);
+    var d = clip('screen');
+    if (d){ last = now() + d; return; }
+    var t = now() + 0.01, end = t + (len || 0.45), r = t;
     while (t < end){
-      var on = 0.005 + Math.random() * 0.02, off = 0.005 + Math.random() * 0.018;
-      buzz(t, on, 128 + Math.random() * 26, 0.9, 1150 + Math.random() * 250);
+      var on = 0.008 + Math.random() * 0.012, off = 0.006 + Math.random() * 0.01;
+      buzz(t, on, BUZZ * (0.9 + Math.random() * 0.2), 0.8, 1100 + Math.random() * 300);
       t += on + off;
     }
+    for (; r < end - 0.04; r += 0.1 + Math.random() * 0.05) ladder(r, 0.03 + Math.random() * 0.015, RUNG[(Math.random() * RUNG.length) | 0], 0.22);
     last = end;
   }
-  /* Sheet readout: slower mid tones in short groups with a pause between. */
-  var MID = [525, 650, 750];
+  /* Sheet readout, the boot grid: a steady 490 Hz bed, the warble on top and
+     ladder rungs about eight a second. */
   function readout(len){
     if (!wake() || !busy()) return;
-    var t = now() + 0.01, end = t + (len || 0.55), n = 0;
-    while (t < end){
-      tone('triangle', MID[(Math.random() * MID.length) | 0], t, 0.022 + Math.random() * 0.008, 0.55);
-      t += 0.055 + Math.random() * 0.012;
-      if (++n % (4 + ((Math.random() * 2) | 0)) === 0) t += 0.11;
-    }
+    var d = clip('sheet');
+    if (d){ last = now() + d; return; }
+    var t = now() + 0.01, d = len || 0.6, end = t + d;
+    tone('square', BED, t, d, 0.12);
+    warble(t, d * 0.8, 0.28);
+    for (var r = t + 0.02; r < end - 0.04; r += 0.115 + Math.random() * 0.02) ladder(r, 0.035, RUNG[(Math.random() * RUNG.length) | 0], 0.26);
     last = end;
   }
-  /* Key: a short heavy buzz with a click on top. */
+  /* Key: a short low buzz, a click, and a tiny high tick. */
   function key(){
-    if (!wake()) return;
+    if (!wake() || clip('key')) return;
     var t = now() + 0.002;
-    noise(t, 0.012, 2500, 0.5);
-    buzz(t, 0.035, 140, 0.8, 600);
+    noise(t, 0.01, 2500, 0.4);
+    buzz(t, 0.03, BUZZ, 0.7, 800);
+    tone('sine', BEEP[1], t, 0.016, 0.22);
   }
-  /* Kept: a high, pure beep trill. */
+  /* Kept: two pure beeps, rising. */
   function ok(){
     if (!wake()) return;
+    hold = now() + 0.4;
+    if (clip('ok')) return;
     var t = now() + 0.03;
-    for (var i = 0; i < 6; i++){ tone('sine', 2600 + (i % 2) * 40, t, 0.025, 0.5); t += 0.05; }
+    tone('sine', BEEP[1], t, 0.07, 0.5);
+    tone('sine', BEEP[2], t + 0.11, 0.11, 0.5);
   }
-  /* Refused: two long low buzzes. */
+  /* Refused: two chopped ladder tones over the low buzz. */
   function no(){
     if (!wake()) return;
+    hold = now() + 0.4;
+    if (clip('no')) return;
     var t = now() + 0.01;
-    buzz(t, 0.16, 110, 1, 500);
-    buzz(t + 0.22, 0.2, 110, 1, 500);
+    for (var i = 0; i < 2; i++, t += 0.24){
+      ladder(t, 0.17, RUNG[0], 0.32);
+      buzz(t, 0.17, BUZZ, 0.6, 500);
+    }
+  }
+  /* Closing a sheet clicks, unless a kept or refused sound is still playing. */
+  function close(){
+    if (!wake() || now() < hold) return;
+    if (!clip('close')) noise(now() + 0.002, 0.02, 1800, 0.6);
+  }
+  /* Deleting chirps down; falls back to the refused buzz. */
+  function erase(){
+    if (!wake()) return;
+    hold = now() + 0.4;
+    if (!clip('erase')) no();
+  }
+  /* A bank sync prints a data stream. */
+  function sync(){
+    if (!wake() || clip('sync')) return;
+    chatter(0.8);
+  }
+  /* A change from the other person arrives as four beeps. */
+  function incoming(){
+    if (!wake() || clip('incoming')) return;
+    ok();
+  }
+  /* The warning tone, once a day, while a month is below zero. Before the
+     first tap it waits and sounds right after the boot. */
+  function alert(short){
+    if (!short){ wantAlert = false; return; }
+    if (alerted || store.get('runway-alerted') === todayStr()) return;
+    if (!wake() || !clips || !booted){ wantAlert = true; return; }
+    alerted = true; store.set('runway-alerted', todayStr());
+    clip('alert', Math.max(now() + 0.005, last));
+  }
+  /* "Back to the plan": a burst of data, the slate wiped. */
+  function wipe(){
+    if (!wake()) return;
+    hold = now() + 0.6;
+    if (!clip('wipe')) chatter(0.9);
+  }
+  /* A ticked task: one clear beep. */
+  function tick(){
+    if (!wake() || clip('tick')) return;
+    ok();
+  }
+  /* The number pads: each digit has its own tone, the same one every time. */
+  function digit(k){
+    if (!wake()) return;
+    if (!/^\d$/.test(k) || !clip('digit', undefined, Number(k))) key();
+  }
+  function setHum(v){
+    humOn = !!v; store.set('runway-hum', humOn);
+    if (humOn){ if (wake()) startHum(0); } else stopHum();
+    paint();
   }
   function set(v){
     on = !!v; store.set('runway-sound', on);
-    if (!on && ctx) ctx.suspend();
-    if (on){ wake(); chatter(0.35); }
+    if (!on){ stopHum(); if (ctx) ctx.suspend(); }
+    if (on){ wake(); booted = false; if (clips) boot(); else chatter(0.35); }
     paint();
   }
   function paint(){
-    var b = $('snd');
+    var b = $('snd'), h = $('hum');
     if (b){ b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Sound on' : 'Sound off'; }
+    if (h){ h.setAttribute('aria-pressed', String(humOn)); h.textContent = humOn ? 'Hum on' : 'Hum off'; h.hidden = !on; }
   }
   function arm(){ armed = true; }
-  return { arm:arm, chatter:chatter, readout:readout, key:key, ok:ok, no:no, set:set, paint:paint, isOn:function(){ return on; } };
+  return { arm:arm, chatter:chatter, readout:readout, key:key, ok:ok, no:no, close:close, erase:erase, sync:sync, incoming:incoming,
+    alert:alert, compute:readout, wipe:wipe, tick:tick, digit:digit, set:set, setHum:setHum, paint:paint,
+    isOn:function(){ return on; }, isHum:function(){ return humOn; } };
+})();
+
+/* ─────────────────────────── typing ───────────────────────────
+   MU-TH-UR types: when a screen or sheet comes up, its headings and figures
+   appear letter by letter, in reading order, behind a block cursor. The text
+   not yet typed stays in place but invisible, so nothing on the page moves.
+   The whole screen is done in under a second, and a redraw mid-way (a poll, a
+   tap) simply shows the full text. Skipped under reduced motion. */
+var TYPE = (function(){
+  var SEL = '.word, .h1, h2, .eyebrow, .fig-xl, .fig, .deck, .stats .v, .fc-r .m, .fc-r .v';
+  var job = 0, live = [], cur = null;
+  function finish(){
+    live.forEach(function(p){ p.node.data = p.full; if (p.rest.parentNode) p.rest.parentNode.removeChild(p.rest); });
+    live = [];
+    if (cur && cur.parentNode) cur.parentNode.removeChild(cur);
+  }
+  function run(root){
+    finish();
+    api.ran = true;
+    if (!root || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    var my = ++job, seen = [];
+    Array.prototype.forEach.call(root.querySelectorAll(SEL), function(el){
+      if (!el.offsetParent || seen.some(function(x){ return x.contains(el); })) return;
+      seen.push(el);
+      var w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), n;
+      while ((n = w.nextNode())) if (n.data.trim()) live.push({ node:n, full:n.data });
+    });
+    if (!live.length) return;
+    live.forEach(function(p){
+      p.rest = document.createElement('span'); p.rest.className = 'ty-rest'; p.rest.textContent = p.full;
+      p.node.parentNode.insertBefore(p.rest, p.node.nextSibling);
+      p.node.data = '';
+    });
+    cur = document.createElement('span'); cur.className = 'ty-cur'; cur.setAttribute('aria-hidden', 'true');
+    var total = live.reduce(function(t, p){ return t + p.full.length; }, 0);
+    var per = Math.max(4, Math.min(22, 800 / total)), t0 = performance.now();
+    (function step(now){
+      if (my !== job) return;
+      var n = Math.floor((now - t0) / per), at = null;
+      for (var i = 0; i < live.length; i++){
+        var p = live[i], k = Math.max(0, Math.min(p.full.length, n));
+        p.node.data = p.full.slice(0, k); p.rest.textContent = p.full.slice(k);
+        if (at === null && k < p.full.length) at = p;
+        n -= p.full.length;
+      }
+      if (!at){ finish(); return; }
+      if (at.rest.parentNode) at.rest.parentNode.insertBefore(cur, at.rest);
+      requestAnimationFrame(step);
+    })(t0);
+  }
+  var api = { run:run, ran:false };
+  return api;
 })();
 
 /* Every press is a key on MU-TH-UR's deck. Capture phase, so it sounds before the
    press changes the screen. */
 document.addEventListener('pointerdown', function(e){
   SFX.arm();
-  if (e.target.closest('button, select, label, a, input, summary') && !e.target.closest('#snd')) SFX.key();
+  var pad = e.target.closest('[data-key],[data-pinkey]');
+  if (pad) return SFX.digit(pad.dataset.key || pad.dataset.pinkey);
+  if (e.target.closest('[data-task]')) return;   // the tick sounds on change
+  if (e.target.closest('button, select, label, a, input, summary') && !e.target.closest('#snd, #hum')) SFX.key();
 }, true);
 
 /* ─────────────────────────── the sheet ─────────────────────────── */
@@ -1783,6 +2014,7 @@ function openSheet(kind){
   if (kind === 'log') logDraft = { cat: lastCat(), day: 'today', dir: 'out' };
   lastFocus = document.activeElement;
   renderSheet();
+  TYPE.run($('sheet'));
   $('scrim').classList.add('open');
   $('sheet').classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -1790,6 +2022,7 @@ function openSheet(kind){
   if (f) f.focus();
 }
 function closeSheet(){
+  SFX.close();
   sheetKind = null;
   $('scrim').classList.remove('open');
   $('sheet').classList.remove('open');
@@ -2074,6 +2307,7 @@ var undoItem = null, undoTimer = null;
 function deleteSpend(id){
   var s = allSpends().filter(function(x){ return x.id === id; })[0];
   if (!s) return;
+  SFX.erase();
   queueDelete(id);
   undoItem = s;
   clearTimeout(undoTimer);
@@ -2085,6 +2319,7 @@ function undoDelete(){
   if (!s) return;
   undoItem = null;
   clearTimeout(undoTimer);
+  SFX.ok();
   /* If the delete has not left the phone, drop it; otherwise put the spend back,
      under the name of whoever logged it. */
   var k = -1;
@@ -2141,12 +2376,14 @@ function go(p, pushState){
   if (page === 'payments' && p !== 'payments') markSeen();
   if (p !== 'payments') payFilter.m = null;
   if (p !== 'bank' && page === 'bank') bankMsg = '';
-  if (page !== p) SFX.chatter();
+  var arriving = page !== p || !TYPE.ran;
+  if (page !== p){ if (p === 'forecast') SFX.compute(); else SFX.chatter(); }
   page = p;
   SCREENS.forEach(function(id){ $('s-' + id).hidden = id !== p; });
   if (pushState && location.hash !== '#' + p) history.pushState(null, '', '#' + p);
   window.scrollTo(0,0);
   render();
+  if (arriving) TYPE.run($('s-' + p));
 }
 
 function renderLive(){
@@ -2182,6 +2419,7 @@ function render(){
   var ci = monthIndexOf(todayStr());
   var env = inRange(ci) ? envelope(ci) : null;
   var act = actHtml();
+  SFX.alert(page === 'today' && !!fixes());
   $('t-act').innerHTML = act;
   $('t-act').hidden = !act;
   $('t-hero').innerHTML = env ? heroHtml(env)
@@ -2440,6 +2678,7 @@ function useFix(k){
   if (!st) return;
   var tasks = S.tasks;
   S = Object.assign({}, st, { tasks: tasks });
+  SFX.compute();
   push();
   render();
 }
@@ -2870,6 +3109,7 @@ function renderFloat(cur, base){
 
 document.addEventListener('click', function(e){
   if (e.target.closest('#snd')) return SFX.set(!SFX.isOn());
+  if (e.target.closest('#hum')) return SFX.setHum(!SFX.isHum());
   var fixBtn = e.target.closest('[data-fix]');
   if (fixBtn){
     e.preventDefault();
@@ -2933,7 +3173,7 @@ document.addEventListener('click', function(e){
   if (b.dataset.act === 'cancel'){ e.preventDefault(); return closeSheet(); }
   if (b.dataset.act === 'undo'){ e.preventDefault(); return undoDelete(); }
   if (b.dataset.act === 'keep'){ e.preventDefault(); return keepSheet(); }
-  if (b.dataset.act === 'reset'){ e.preventDefault(); closeSheet(); return resetAll(); }
+  if (b.dataset.act === 'reset'){ e.preventDefault(); SFX.wipe(); closeSheet(); return resetAll(); }
   if (b.dataset.open === 'subs'){ e.preventDefault(); keepSheet(); return go('subs', true); }
   if (b.dataset.back === 'subs'){ e.preventDefault(); return go(cameFrom, true); }
   if (b.dataset.sheet){ e.preventDefault(); return openSheet(b.dataset.sheet); }
@@ -2990,6 +3230,7 @@ $('sheet').addEventListener('input', function(e){
   if (r) r.innerHTML = resultRows(draft);
 });
 $('sheet').addEventListener('change', function(e){
+  if (e.target.type === 'range') return SFX.compute();
   if (e.target.id !== 'gem-sel') return;
   draft.gem = e.target.value;
   var r = $('sheet-result');
@@ -3027,7 +3268,7 @@ document.addEventListener('change', function(e){
   }
   if (el.id === 'bank-country'){ bankCountry = el.value; bankQuery = ''; return loadBanks(); }
   if (el.dataset && el.dataset.task){
-    if (el.checked) S.tasks[el.dataset.task] = true; else delete S.tasks[el.dataset.task];
+    if (el.checked){ S.tasks[el.dataset.task] = true; SFX.tick(); } else { delete S.tasks[el.dataset.task]; SFX.key(); }
     push(); render(); return;
   }
   if (el.classList.contains('sw')){
