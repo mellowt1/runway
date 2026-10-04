@@ -1063,15 +1063,21 @@ function restHtml(i){
     rows.map(function(r){ return oRow(r.name, fmt(r.left)); }).join('') +
     '<p class="o-foot">A bill paid already that is still listed here: tap it under Payments and put it in Bills or Debt payments.</p>';
 }
+/* plan.forecast.mode "plan": the forecast is the agreed plan and nothing else. It runs
+   from forecast.start (the money at the end of month 0) through the plan's months,
+   moved only by the sliders; the bank and the entries never change it. */
+function planOnly(){ return !!(PLAN.forecast && PLAN.forecast.mode === 'plan'); }
 function model(st){
   var subsT = sum(keptSubs(st));
   var monthly = sum(PLAN.fixed) + sum(PLAN.loans) + subsT + flexTotal(st);
-  var A = anchor();
-  var bal = A ? A.bal : PLAN.start, M = [];
-  var first = PLAN.months[A ? A.ci : 0].key;
+  var PM = planOnly();
+  var A = PM ? null : anchor();
+  var bal = A ? A.bal : PM ? Number(PLAN.forecast.start) : PLAN.start, M = [];
+  var first = PLAN.months[A ? A.ci : PM ? 1 : 0].key;
 
   PLAN.months.forEach(function(m, i){
     if (A && i < A.ci) return;
+    if (PM && i === 0) return;
     var items = [];
     if (A && i === A.ci){
       items = restOfMonth(i, st, subsT);
@@ -1086,16 +1092,16 @@ function model(st){
       if (spentNow) items.push({ name:'Spending', amount: -spentNow });
     }
     /* Bank one-offs beyond the ones the plan already takes off this month. */
-    var off = cents(Math.max(0, oneOffsIn(i) - plannedOneOffsOut(i, st)));
+    var off = PM ? 0 : cents(Math.max(0, oneOffsIn(i) - plannedOneOffsOut(i, st)));
     if (off) items.push({ name:'One-offs', amount: -off });
-    var cameIn = envelope(i, st).income;
+    var cameIn = PM ? 0 : envelope(i, st).income;
     if (cameIn) items.push({ name:'Money in', amount: cameIn });
     if (i > 0){
       if (m.key === PLAN.salary.from || afterKey(m.key, PLAN.salary.from)) {
         items.push({ name:'Salary', amount: Number(st.salary)||0 });
       }
       items.push({ name:'Monthly budget', amount: -monthly });
-      var over = overBudget(i, st);
+      var over = PM ? 0 : overBudget(i, st);
       if (over) items.push({ name:'Over budget', amount: -over });
       (PLAN.oneOffs||[]).forEach(function(o){
         if (o.month === m.key) items.push({ name:o.name, amount:o.amount });
@@ -2248,10 +2254,11 @@ function renderSheet(){
   else if (sheetKind === 'how'){
     var A = anchor(), hb = model(S).M.filter(function(m){ return m.bridged; })[0];
     html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">How it’s counted</h2><span></span></div>' +
-      '<p class="o-note">' + (A ? 'Starts from the ' + esc(fmt(A.bal)) + ' you have today' + (manualAccounts().length ? ', savings included' : '') + '. ' : '') +
-      'Counts ' + esc(fmt(flexTotal(S))) + ' a month for ' + esc(flexWords()) + '. ' + esc(FORECAST_SPEND_RULE) + '</p>' +
+      '<p class="o-note">' + (A && !planOnly() ? 'Starts from the ' + esc(fmt(A.bal)) + ' you have today' + (manualAccounts().length ? ', savings included' : '') + '. ' : '') +
+      'Counts ' + esc(fmt(flexTotal(S))) + ' a month for ' + esc(flexWords()) + '.' + (planOnly() ? '' : ' ' + esc(FORECAST_SPEND_RULE)) + '</p>' +
       (hb ? '<p class="o-note">' + esc(PLAN.bridge.by) + '’s ' + esc(fmt(hb.bridged)) + ' is in these figures; paying it back is not.</p>' : '') +
-      '<p class="o-note">A month still below zero is not covered.</p>' + (A ? restHtml(A.ci) : '');
+      '<p class="o-note">A month still below zero is not covered.</p>' +
+      (planOnly() && PLAN.forecast.note ? '<p class="o-note">' + esc(PLAN.forecast.note) + '</p>' : '') + (A && !planOnly() ? restHtml(A.ci) : '');
   }
 
   else if (sheetKind === 'bankmanage'){
