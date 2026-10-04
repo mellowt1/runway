@@ -17,6 +17,7 @@
  *           a fact, so also out of reach of "back to the plan".
  *   tasks   to-dos either person adds, each for one of them, with its tick. The
  *           plan's own tasks stay in the plan; their ticks stay in state.
+ *   asks    questions for MOTHER: one person asks, the other answers.
  *
  * Anyone with the code can read all of them and write state, spends, manual and tasks. That is the
  * point: one person sends the other a link, the other moves a slider, and the next
@@ -31,8 +32,13 @@
  *   POST   /api/manual/:code       <- { by, id, bal, asOf } -> { ok, entry, rev }
  *   POST   /api/task/:code         <- { by, task }        -> { ok, task, rev }      upsert by task.id
  *   DELETE /api/task/:code/:id     <- { by }              -> { ok, removed, rev }
+ *   POST   /api/ask/:code          <- { by, ask: {id, q} } -> { ok, ask, rev }     a new question
+ *   POST   /api/ask/:code/:id      <- { by, a }           -> { ok, ask, rev }      its answer
+ *   DELETE /api/ask/:code/:id      <- { by }              -> { ok, removed, rev }
  *
- * A task added for someone sends an alert to every phone but the adder's.
+ * A task added for someone sends an alert to every phone but the adder's. A question
+ * goes to every phone but the asker's; an answer goes to the asker's phones only, and
+ * keeps its text out of the alert so MOTHER can type it out on the screen.
  *
  * Alerts (Web Push) are in alerts.js.
  *
@@ -62,6 +68,7 @@ const SPEND_CAT = /^[a-z0-9_-]{1,24}$/;
 const MANUAL_ID = /^[a-z0-9_-]{1,24}$/;
 const MAX_MANUAL = 12;
 const MAX_TASKS = 100;
+const MAX_ASKS = 150;
 
 function cors(request) {
   const o = request.headers.get('Origin') || '';
@@ -158,6 +165,7 @@ async function handlePlan(request, env, code) {
     const sp = (await readDoc(env, `spends:${code}`)) || {};
     const md = (await readDoc(env, `manual:${code}`)) || {};
     const tk = (await readDoc(env, `tasks:${code}`)) || {};
+    const ak = (await readDoc(env, `asks:${code}`)) || {};
     const bank = await bankSummary(env, code);
     return json(
       {
@@ -165,10 +173,11 @@ async function handlePlan(request, env, code) {
         state: st.state || null,
         updated: st.updated || null,
         by: st.by || null,
-        rev: (st.rev || 0) + (sp.rev || 0) + (md.rev || 0) + (tk.rev || 0),
+        rev: (st.rev || 0) + (sp.rev || 0) + (md.rev || 0) + (tk.rev || 0) + (ak.rev || 0),
         spends: Array.isArray(sp.list) ? sp.list : [],
         manual: md.set || {},
         tasks: Array.isArray(tk.list) ? tk.list : [],
+        asks: Array.isArray(ak.list) ? ak.list : [],
         bank,
       },
       request
@@ -353,6 +362,75 @@ async function handleTask(request, env, code, id) {
   return json({ error: 'method' }, request, 405);
 }
 
+// Text someone typed: control characters out, line breaks kept (at most two in a row).
+function cleanLines(v, n) {
+  return String(v || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, n)
+    .trim();
+}
+
+// Questions for MOTHER, their own document like tasks. Anyone with the code may ask;
+// only someone other than the asker may answer.
+async function handleAsk(request, env, code, id) {
+  const key = `asks:${code}`;
+  const body = await request.json().catch(() => null);
+  const by = cleanBy(body && body.by);
+  const prev = (await readDoc(env, key)) || {};
+  const list = Array.isArray(prev.list) ? prev.list : [];
+  const save = (next) => {
+    const rec = { list: next, rev: (prev.rev || 0) + 1 };
+    return env.RUNWAY_KV.put(key, JSON.stringify(rec), { expirationTtl: TTL }).then(() => rec.rev);
+  };
+
+  if (request.method === 'POST' && !id) {
+    const a = body && body.ask;
+    const aid = String((a && a.id) || '');
+    const q = cleanLines(a && a.q, 240);
+    if (!SPEND_ID.test(aid) || !q || !by) return json({ error: 'ask required: by, id, q' }, request, 400);
+    const old = list.find((x) => x && x.id === aid);
+    if (old) return json({ ok: true, ask: old, rev: prev.rev || 0 }, request);
+    let next = list.concat([{ id: aid, q, by, at: new Date().toISOString() }]);
+    // Full: the oldest answered question goes first, then the oldest of all.
+    while (next.length > MAX_ASKS) {
+      const i = next.findIndex((x) => x.a);
+      next.splice(i > -1 ? i : 0, 1);
+    }
+    const ask = next[next.length - 1];
+    const rev = await save(next);
+    const alerted = await notify(env, code,
+      { title: 'MOTHER', body: `${by} asks: ${q}`.replace(/\s+/g, ' ').slice(0, 180), url: './#mother' }, null, by);
+    return json({ ok: true, ask, rev, alerted }, request);
+  }
+
+  if (request.method === 'POST' && id) {
+    if (!SPEND_ID.test(id)) return json({ error: 'bad id' }, request, 400);
+    const ans = cleanLines(body && body.a, 800);
+    if (!ans || !by) return json({ error: 'answer required: by, a' }, request, 400);
+    const old = list.find((x) => x && x.id === id);
+    if (!old) return json({ error: 'no such question' }, request, 404);
+    if (old.by.toLowerCase() === by.toLowerCase()) return json({ error: 'the asker cannot answer' }, request, 403);
+    const ask = Object.assign({}, old, { a: ans, aBy: by, aAt: new Date().toISOString() });
+    const rev = await save(list.map((x) => (x && x.id === id ? ask : x)));
+    const alerted = await notify(env, code,
+      { title: 'MOTHER', body: 'MOTHER has answered your inquiry.', url: './#mother' }, old.by, null);
+    return json({ ok: true, ask, rev, alerted }, request);
+  }
+
+  if (request.method === 'DELETE' && id) {
+    if (!SPEND_ID.test(id)) return json({ error: 'bad id' }, request, 400);
+    const next = list.filter((x) => x && x.id !== id);
+    if (next.length === list.length) return json({ ok: true, removed: false, rev: prev.rev || 0 }, request);
+    const rev = await save(next);
+    return json({ ok: true, removed: true, rev }, request);
+  }
+
+  return json({ error: 'method' }, request, 405);
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
@@ -386,6 +464,13 @@ export default {
       const code = tm[1].toLowerCase();
       if (!CODE.test(code)) return json({ error: 'bad code' }, request, 400);
       return handleTask(request, env, code, tm[2] ? tm[2].toLowerCase() : null);
+    }
+
+    const ak = url.pathname.match(/^\/api\/ask\/([a-z0-9]+)(?:\/([a-z0-9]+))?$/i);
+    if (ak) {
+      const code = ak[1].toLowerCase();
+      if (!CODE.test(code)) return json({ error: 'bad code' }, request, 400);
+      return handleAsk(request, env, code, ak[2] ? ak[2].toLowerCase() : null);
     }
 
     const mn = url.pathname.match(/^\/api\/manual\/([a-z0-9]+)$/i);

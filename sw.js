@@ -17,12 +17,16 @@ self.addEventListener('push', (e) => {
 });
 
 // Opens the app that is already running, or a new one at the scope (the page
-// remembers its code), or at the link the alert carries.
+// remembers its code), or at the link the alert carries. A link with a #screen
+// takes a running app there too.
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const url = (e.notification.data && e.notification.data.url) || self.registration.scope;
+  const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
+  const go = new URL(url).hash.slice(1);
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
     const open = wins.find((w) => w.url.startsWith(self.registration.scope));
-    return open ? open.focus() : self.clients.openWindow(url);
+    if (!open) return self.clients.openWindow(url);
+    if (go) open.postMessage({ go });
+    return open.focus();
   }));
 });

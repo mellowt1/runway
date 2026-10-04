@@ -572,6 +572,37 @@ details p{font:400 21px/1.2 var(--serif)}
 .o-row .del{align-self:center}
 #b-sync .o-key{font-size:20px}
 .o-row:focus-visible,.o-key:focus-visible,.o-amb:focus-visible,.o-tick:focus-visible,.o-open:focus-visible{outline:3px solid #6fd3ff;outline-offset:2px}
+
+/* MOTHER: one asks on the terminal, the other answers, the answer types out */
+.mo-l{font:400 26px/1.1 var(--serif);text-transform:uppercase}
+.mo-l.dim{color:var(--muted)}
+.mo-cur{display:inline-block;width:.55em;height:.9em;margin-left:.15em;vertical-align:-.08em;background:currentColor;animation:mo-blink 1.06s steps(1) infinite}
+@keyframes mo-blink{50%{opacity:0}}
+.mo-q{display:block;width:100%;padding:12px 0 8px;border:0;border-bottom:2px dashed var(--rule);border-radius:0;background:none;color:inherit;text-align:left}
+.mo-q > span{display:block}
+.mo-q .who{font:400 12px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.mo-q .new{display:inline;margin-left:8px;color:var(--over)}
+.mo-q .q{font:400 24px/1.12 var(--serif);text-transform:uppercase;margin-top:4px;overflow-wrap:anywhere;white-space:pre-line}
+.mo-q .a{font:400 24px/1.12 var(--serif);text-transform:uppercase;margin-top:6px;padding-left:12px;border-left:3px solid var(--ink);overflow-wrap:anywhere;white-space:pre-line}
+.mo-q .w{font:400 20px/1.1 var(--serif);text-transform:uppercase;margin-top:6px;color:var(--over)}
+.mo-ta{display:block;width:100%;min-height:128px;margin-top:10px;padding:10px;border:2px solid var(--ink);border-radius:0;background:#04100a;color:var(--ink);
+  font:400 24px/1.15 var(--serif);text-transform:uppercase;resize:vertical}
+.mo-ta::placeholder{color:var(--muted)}
+.mo-ta:focus{outline:3px solid #6fd3ff;outline-offset:2px}
+.tabs em.call,.tabs button[aria-current="page"] em.call{background:#eeb868;box-shadow:0 0 6px #eeb868}
+.mo-play{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;overflow-y:auto;background:#020a05;color:var(--ink);
+  padding:calc(28px + env(safe-area-inset-top,0px)) 20px calc(24px + env(safe-area-inset-bottom,0px));text-shadow:0 0 6px rgba(168,230,161,.35)}
+.mo-play[hidden]{display:none}
+.mo-scr{font:400 28px/1.15 var(--serif);text-transform:uppercase;white-space:pre-wrap;overflow-wrap:anywhere}
+.mo-scr .dim{color:var(--muted)}
+.mo-scr .ans{display:block;margin-top:6px;padding-left:12px;border-left:3px solid var(--ink)}
+.mo-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;max-width:420px;margin:16px 0}
+.mo-grid[hidden]{display:none}
+.mo-grid i{display:block;aspect-ratio:1;background:var(--ink);opacity:.08}
+.mo-grid i.on{opacity:.9;box-shadow:0 0 6px var(--ink)}
+.mo-go{flex:none;width:100%;min-height:56px;margin-top:auto}
+.mo-go[hidden]{display:none}
+.mo-scr + .mo-grid + .mo-go{margin-top:auto}
 </style>
 </head>
 <body>
@@ -678,10 +709,24 @@ details p{font:400 21px/1.2 var(--serif)}
     <div id="k-paul"></div>
     <p class="o-foot" id="k-foot"></p>
   </section>
+
+  <section class="screen" id="s-mother" hidden>
+    <div class="o-top">
+      <span class="o-eb">MU/TH/UR 6000</span>
+      <button class="o-key" data-sheet="ask">+ Inquiry</button>
+    </div>
+    <div id="mo-head"></div>
+    <div id="mo-list"></div>
+  </section>
 </div>
 
 <div id="float"></div>
 <div id="undo" aria-live="polite"></div>
+<div class="mo-play" id="mo-play" role="dialog" aria-modal="true" aria-label="MOTHER answers" hidden>
+  <div class="mo-scr" id="mo-scr" aria-live="polite"></div>
+  <div class="mo-grid" id="mo-grid" aria-hidden="true" hidden></div>
+  <button class="o-key mo-go" id="mo-go" type="button"></button>
+</div>
 
 <nav class="tabs" id="tabs" aria-label="Main" hidden><div class="inner"></div></nav>
 
@@ -1086,7 +1131,7 @@ function dip(M){
 function cacheKey(){ return 'runway-cache-' + CODE; }
 function outboxKey(){ return 'runway-outbox-' + CODE; }
 function saveCache(state){
-  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS, manual:MANUAL, tasks:TASKS });
+  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS, manual:MANUAL, tasks:TASKS, asks:ASKS });
 }
 
 function applyRemote(data){
@@ -1100,6 +1145,7 @@ function applyRemote(data){
   SPENDS = Array.isArray(data.spends) ? data.spends : [];
   MANUAL = data.manual && typeof data.manual === 'object' ? data.manual : {};
   TASKS = Array.isArray(data.tasks) ? data.tasks : [];
+  ASKS = Array.isArray(data.asks) ? data.asks : [];
   if (data.bank) BANKINFO = data.bank;
   MATCH = null; CL = null;
   saveCache(data.state);
@@ -1181,7 +1227,7 @@ async function pull(){
 async function poll(){
   if (document.hidden) return;
   if (OUTBOX.length) await flush();
-  if (dirty || taskBusy) return;
+  if (dirty || taskBusy || askBusy) return;
   try {
     var data = await pull();
     var bankMoved = false;
@@ -1193,10 +1239,12 @@ async function poll(){
     var keepPage = page;
     var known = TASKS.map(function(x){ return x.id; });
     var newTask = (data.tasks || []).some(function(x){ return known.indexOf(x.id) === -1 && x.by && x.by !== ME; });
-    if ((data.by && data.by !== ME) || newTask) SFX.incoming();
+    var newAsk = askNews(data.asks || []);
+    if ((data.by && data.by !== ME) || newTask || newAsk) SFX.incoming();
     applyRemote(data);
     page = keepPage;
     render();
+    motherCheck();
   } catch(e){ /* stay on what we have */ }
 }
 
@@ -1977,7 +2025,7 @@ var SFX = (function(){
    tap) simply shows the full text. Skipped under reduced motion. */
 var TYPE = (function(){
   var SEL = '.word, .h1, h2, .eyebrow, .fig-xl, .fig, .deck, .stats .v, .fc-r .m, .fc-r .v, .o-eb, .o-big, .o-line, .o-grp > span, ' +
-    '.o-row > span:not(.lead), .o-row .top > span:not(.lead), .o-open > span:not(.lead), .o-amb > span:not(.lead)';
+    '.mo-l, .mo-q .who, .mo-q .q, .mo-q .a, .mo-q .w, .o-row > span:not(.lead), .o-row .top > span:not(.lead), .o-open > span:not(.lead), .o-amb > span:not(.lead)';
   var job = 0, live = [], cur = null;
   function finish(){
     live.forEach(function(p){ p.node.data = p.full; if (p.rest.parentNode) p.rest.parentNode.removeChild(p.rest); });
@@ -2048,7 +2096,8 @@ function openSheet(kind){
   $('scrim').classList.add('open');
   $('sheet').classList.add('open');
   document.body.style.overflow = 'hidden';
-  var f = kind === 'log' || kind === 'manual' ? $('lg-amt') : kind === 'addtask' ? $('tk-t') : $('sheet').querySelector('input,select,button');
+  var f = kind === 'log' || kind === 'manual' ? $('lg-amt') : kind === 'addtask' ? $('tk-t') : kind === 'ask' ? $('mo-q') :
+    kind === 'inq' && $('mo-a') ? $('mo-a') : $('sheet').querySelector('input,select,button');
   if (f) f.focus();
 }
 function closeSheet(){
@@ -2236,6 +2285,40 @@ function renderSheet(){
       '<p class="err" id="tk-err" role="alert"></p>' +
       '<button class="enter" data-act="add-task">Add the task</button>' +
       '<p class="o-foot">The other phone gets an alert</p>';
+  }
+
+  else if (sheetKind === 'ask'){
+    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Cancel</button><h2 id="sheet-title">Inquiry</h2><span></span></div>' +
+      '<textarea class="mo-ta" id="mo-q" maxlength="240" placeholder="What do you want to know?" aria-label="Your question">' + esc(askDraft.q || '') + '</textarea>' +
+      '<p class="err" id="mo-err" role="alert"></p>' +
+      '<button class="enter" data-act="send-ask">Transmit</button>' +
+      '<p class="o-foot">' + esc(otherName()) + ' gets an alert and answers. MOTHER types the answer out for you.</p>';
+  }
+
+  else if (sheetKind === 'inq'){
+    var mq = askById(inqId);
+    if (!mq){ html = '<h2 id="sheet-title">Erased</h2><p class="hint">This inquiry is no longer on file.</p>'; }
+    else {
+      html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">Inquiry</h2><span></span></div>' +
+        '<p class="o-sm">' + esc(mq.by) + ' · ' + esc(stamp(mq.at)) + '</p>' +
+        '<p class="o-note" style="text-transform:uppercase;white-space:pre-line;overflow-wrap:anywhere">&gt; ' + esc(mq.q) + '</p>';
+      if (mq.a){
+        var unheard = mine(mq) && !heard(mq.id);
+        html += oGrp('Response', stamp(mq.aAt)) +
+          (unheard ? '<p class="o-line">Not received yet</p>'
+            : '<p class="o-note" style="text-transform:uppercase;white-space:pre-line;overflow-wrap:anywhere">' + esc(mq.a) + '</p>') +
+          (mine(mq) ? '<button class="o-key" type="button" data-act="mo-play" style="width:100%;margin-top:14px">[ ' + (unheard ? 'Receive' : 'Play again') + ' ]</button>' : '');
+      } else if (ME && !mine(mq)){
+        html += '<textarea class="mo-ta" id="mo-a" maxlength="800" placeholder="MOTHER says…" aria-label="Your answer">' +
+            esc(askDraft && askDraft.id === mq.id ? askDraft.a : '') + '</textarea>' +
+          '<p class="err" id="mo-err" role="alert"></p>' +
+          '<button class="enter" data-act="send-answer">Transmit</button>' +
+          '<p class="o-foot">' + esc(mq.by) + '’s phone gets an alert. MOTHER types your answer out on it.</p>';
+      } else {
+        html += '<p class="o-line">Awaiting response from ' + esc(otherName()) + '</p>';
+      }
+      html += '<button class="o-row dim" type="button" data-act="mo-erase" style="margin-top:14px"><span>Erase this inquiry</span></button>';
+    }
   }
 
   else if (sheetKind === 'manual'){
@@ -2512,8 +2595,8 @@ function diffRows(){
 
 /* ─────────────────────────── render ─────────────────────────── */
 
-var PAGES = [['today','Today'],['forecast','Forecast'],['tasks','Tasks']];
-var SCREENS = ['today','forecast','month','subs','debts','tasks','spends','bank','payments'];
+var PAGES = [['today','Today'],['forecast','Forecast'],['tasks','Tasks'],['mother','Mother']];
+var SCREENS = ['today','forecast','month','subs','debts','tasks','spends','bank','payments','mother'];
 var cameFrom = 'today';
 
 function go(p, pushState){
@@ -2532,6 +2615,7 @@ function go(p, pushState){
   window.scrollTo(0,0);
   render();
   if (arriving) TYPE.run($('s-' + p));
+  if (p === 'mother') motherCheck();
 }
 
 function renderLive(){
@@ -2554,7 +2638,7 @@ function render(){
   $('tabs').firstElementChild.innerHTML = PAGES.map(function(p){
     var here = ['month','debts','spends','bank','payments'].indexOf(page) > -1 ? 'today' : (page === 'subs' ? cameFrom : page);
     return '<button data-go="' + p[0] + '" aria-current="' + (here === p[0] ? 'page' : 'false') + '">' +
-      p[1] + '<em></em></button>';
+      p[1] + '<em' + (p[0] === 'mother' && (toHear().length || toAnswer().length) ? ' class="call"' : '') + '></em></button>';
   }).join('');
 
   var cur = model(S), base = model(BASE);
@@ -2568,7 +2652,8 @@ function render(){
   var fx = fixes();
   SFX.alert(page === 'today' && !!fx);
   $('t-hero').innerHTML = env ? todayHeroHtml(env) : oHero('By ' + lastLabel, fmt(cur.end));
-  $('t-act').innerHTML = actRowHtml(fx) + alertsLine();
+  $('t-act').innerHTML = motherRowHtml() + actRowHtml(fx) + alertsLine();
+  renderMother();
   $('t-cats').innerHTML = env ? everydayHtml(env) : '';
   $('t-bank').innerHTML = todayMoneyHtml(env);
   $('t-entry').textContent = '[ + ' + (hasBank() ? 'Enter cash' : 'New entry') + ' ]';
@@ -2876,6 +2961,176 @@ function addTask(){
   SFX.ok();
   closeSheet();
   saveTask({ id: newId(), t: t, who: addDraft.who, when: addDraft.when, done: false }, true);
+}
+
+/* ─────────────────────────── MOTHER ───────────────────────────
+   A question for the other person. One asks on the terminal; the other's phone gets an
+   alert and answers in a sheet; the asker's phone gets an alert too, and MOTHER plays
+   the answer once: an incoming transmission, the computing grid, the answer typed out.
+   What has been played is kept per phone. */
+var ASKS = [];             // as the Worker last returned them
+var askBusy = 0, askErr = '', askDraft = null, inqId = null, moPlaying = false, moJob = 0;
+function askById(id){ return ASKS.filter(function(x){ return x.id === id; })[0] || null; }
+function mine(x){ return !!ME && lc(x.by) === lc(ME); }
+function heardList(){ var h = store.get('runway-mother-' + CODE); return Array.isArray(h) ? h : []; }
+function heard(id){ return heardList().indexOf(id) > -1; }
+function markHeard(id){ store.set('runway-mother-' + CODE, heardList().filter(function(x){ return x !== id; }).concat([id]).slice(-200)); }
+function toHear(){ return ASKS.filter(function(x){ return x.a && mine(x) && !heard(x.id); }); }
+function toAnswer(){ return ME ? ASKS.filter(function(x){ return !x.a && !mine(x); }) : []; }
+function otherName(){ return lc(ME) === lc(PLAN.people.other) ? PLAN.people.owner : PLAN.people.other; }
+function stamp(iso){
+  var d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleDateString('en-GB', { day:'numeric', month:'short' }) + ' ' +
+    d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+}
+/* True when a poll brings something from the other side: a question to answer, or an answer to one of ours. */
+function askNews(list){
+  var old = {};
+  ASKS.forEach(function(x){ old[x.id] = x; });
+  return list.some(function(x){ var o = old[x.id]; return (!o && !mine(x)) || (x.a && mine(x) && (!o || !o.a)); });
+}
+function motherRowHtml(){
+  var h = toHear().length, w = toAnswer();
+  if (h) return oAmb('MOTHER has ' + (h === 1 ? 'an answer' : h + ' answers'), 'data-go="mother"');
+  if (w.length) return oAmb(w[0].by + ' asked MOTHER', 'data-go="mother"');
+  return '';
+}
+function renderMother(){
+  var wait = toAnswer();
+  $('mo-head').innerHTML = '<p class="mo-l dim">Interface 2037</p><p class="mo-l">Ready for inquiry<span class="mo-cur"></span></p>' +
+    (askErr ? '<p class="err" role="alert">' + esc(askErr) + '</p>' : '') +
+    (ME ? '' : '<p class="o-note">Open your own link, the one that ends in your name, to ask MOTHER.</p>') +
+    wait.map(function(x){ return oAmb(x.by + ' asks · answer', 'data-inq="' + esc(x.id) + '"'); }).join('');
+  var list = ASKS.slice().sort(function(x, y){ return x.at < y.at ? 1 : -1; });
+  $('mo-list').innerHTML = oGrp('Log', list.length ? String(list.length) : '') + (list.length ? list.map(function(x){
+    var fresh = x.a && mine(x) && !heard(x.id);
+    return '<button class="mo-q" type="button" data-inq="' + esc(x.id) + '">' +
+      '<span class="who">' + esc(x.by) + ' · ' + esc(stamp(x.at)) + (fresh ? '<span class="new">new</span>' : '') + '</span>' +
+      '<span class="q">&gt; ' + esc(x.q) + '</span>' +
+      (x.a ? (fresh ? '<span class="w">Response received · tap to receive</span>' : '<span class="a">' + esc(x.a) + '</span>')
+        : '<span class="w">' + (mine(x) ? 'Request logged. Awaiting response' : 'Awaiting your response') + '</span>') +
+      '</button>';
+  }).join('') : '<div class="o-row dim"><span>No inquiries on file</span></div>');
+}
+async function askWrite(path, method, body){
+  askBusy++;
+  var res = null, out = null;
+  try {
+    res = await fetch(API + path, { method: method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    out = res.ok ? await res.json().catch(function(){ return null; }) : null;
+  } catch(e){ out = null; }
+  askBusy--;
+  return out && out.ok ? out : null;
+}
+async function sendAsk(){
+  var q = String((askDraft && askDraft.q) || '').trim();
+  if (!ME) return;
+  if (!q){ SFX.no(); $('mo-err').textContent = 'Type the question first.'; return; }
+  var ask = { id: newId(), q: q, by: ME, at: new Date().toISOString() };
+  ASKS = ASKS.concat([ask]); askErr = ''; askDraft = null;
+  SFX.ok(); closeSheet(); render();
+  var out = await askWrite('/api/ask/' + CODE, 'POST', { by: ME, ask: { id: ask.id, q: q } });
+  if (!out){
+    ASKS = ASKS.filter(function(x){ return x.id !== ask.id; });
+    SFX.no(); askErr = 'The inquiry was not sent. Check the connection and try again.'; askDraft = { q: q };
+  } else if (out.ask) ASKS = ASKS.map(function(x){ return x.id === ask.id ? out.ask : x; });
+  render();
+}
+async function sendAnswer(){
+  var mq = askById(inqId), t = String((askDraft && askDraft.id === inqId && askDraft.a) || '').trim();
+  if (!mq) return closeSheet();
+  if (!t){ SFX.no(); $('mo-err').textContent = 'Type the answer first.'; return; }
+  var before = ASKS.slice();
+  ASKS = ASKS.map(function(x){ return x.id === mq.id ? Object.assign({}, x, { a: t, aBy: ME, aAt: new Date().toISOString() }) : x; });
+  askErr = ''; askDraft = null;
+  SFX.ok(); closeSheet(); render();
+  var out = await askWrite('/api/ask/' + CODE + '/' + mq.id, 'POST', { by: ME, a: t });
+  if (!out){ ASKS = before; SFX.no(); askErr = 'The answer was not sent. Try again.'; askDraft = { id: mq.id, a: t }; }
+  else if (out.ask) ASKS = ASKS.map(function(x){ return x.id === mq.id ? out.ask : x; });
+  render();
+}
+async function eraseAsk(){
+  var mq = askById(inqId);
+  if (!mq) return closeSheet();
+  var before = ASKS.slice();
+  ASKS = ASKS.filter(function(x){ return x.id !== mq.id; });
+  SFX.erase(); closeSheet(); render();
+  var out = await askWrite('/api/ask/' + CODE + '/' + mq.id, 'DELETE', { by: ME || null });
+  if (!out){ ASKS = before; SFX.no(); askErr = 'The inquiry was not erased. Try again.'; }
+  render();
+}
+/* On the MOTHER screen, an answer not yet played plays, oldest first. */
+function motherCheck(){
+  if (page !== 'mother' || moPlaying || sheetKind) return;
+  var h = toHear().sort(function(x, y){ return x.aAt < y.aAt ? -1 : 1; });
+  if (h.length) playAnswer(h[0]);
+}
+/* The playback. It opens on a key to press: sound can only start from a tap, and
+   the answer should not run before anyone is looking. A tap while it runs skips ahead. */
+function playAnswer(x){
+  if (moPlaying) return;
+  moPlaying = true;
+  var my = ++moJob, box = $('mo-play'), scr = $('mo-scr'), grid = $('mo-grid'), btn = $('mo-go'), skip = false;
+  var calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function wait(ms){ return new Promise(function(ok){ setTimeout(ok, ms); }); }
+  function line(cls){ var el = document.createElement('span'); if (cls) el.className = cls; scr.appendChild(el); return el; }
+  function nl(n){ scr.appendChild(document.createTextNode(n === 2 ? '\n\n' : '\n')); }
+  async function type(el, text, per, keys){
+    if (calm || skip){ el.textContent = text; return; }
+    for (var i = 1; i <= text.length; i++){
+      if (my !== moJob) return;
+      if (skip){ el.textContent = text; return; }
+      el.textContent = text.slice(0, i);
+      if (keys && i % 3 === 0 && /\S/.test(text.charAt(i - 1))) SFX.key();
+      await wait(per);
+    }
+  }
+  async function run(){
+    scr.innerHTML = '';
+    SFX.chatter();
+    await type(line('dim'), 'MU/TH/UR 6000', 16); nl();
+    await type(line('dim'), 'Interface 2037', 16); nl(2);
+    await type(line(), 'Inquiry from ' + x.by + ':', 16); nl();
+    await type(line(), '> ' + x.q, 12); nl(2);
+    await type(line(), 'Computing…', 40);
+    if (!calm && !skip && my === moJob){
+      grid.innerHTML = new Array(97).join('<i></i>');
+      grid.hidden = false;
+      var cells = grid.children, t0 = performance.now(), next = 0;
+      while (performance.now() - t0 < 2200 && my === moJob && !skip){
+        if (performance.now() - t0 >= next){ SFX.readout(); next += 720; }
+        for (var k = 0; k < cells.length; k++) cells[k].className = Math.random() < 0.34 ? 'on' : '';
+        await wait(70);
+      }
+      grid.hidden = true;
+    }
+    if (my !== moJob) return;
+    nl(2);
+    await type(line(), 'Response:', 30);
+    var ans = line('ans');
+    await type(ans, x.a, 28, true);
+    if (my !== moJob) return;
+    var cur = document.createElement('span'); cur.className = 'mo-cur'; ans.appendChild(cur);
+    SFX.ok();
+    markHeard(x.id);
+    btn.textContent = '[ Acknowledge ]'; btn.hidden = false; btn.onclick = closePlay; btn.focus();
+  }
+  scr.innerHTML = '<span class="dim">MU/TH/UR 6000</span>\n<span class="dim">Interface 2037</span>\n\nIncoming transmission<span class="mo-cur"></span>';
+  grid.hidden = true;
+  btn.textContent = '[ Receive ]'; btn.hidden = false;
+  btn.onclick = function(){ btn.hidden = true; run(); };
+  box.onclick = function(e){ if (btn.hidden && e.target !== btn) skip = true; };
+  box.hidden = false;
+  document.body.style.overflow = 'hidden';
+  btn.focus();
+}
+function closePlay(){
+  moJob++; moPlaying = false;
+  $('mo-play').hidden = true;
+  document.body.style.overflow = '';
+  SFX.close();
+  render();
+  setTimeout(motherCheck, 400);   // the next one, if more came in
 }
 
 var FORECAST_SPEND_RULE = 'Spending more than that lowers these figures. Spending less does not raise them ' +
@@ -3300,8 +3555,22 @@ document.addEventListener('click', function(e){
     if (td.twho !== undefined){ addDraft.who = td.twho; return renderSheet(); }
     if (td.twhen !== undefined){ addDraft.when = td.twhen; return renderSheet(); }
   }
+  var inq = e.target.closest('[data-inq]');
+  if (inq){
+    e.preventDefault();
+    var iq = askById(inq.dataset.inq);
+    if (iq && iq.a && mine(iq) && !heard(iq.id)) return playAnswer(iq);
+    inqId = inq.dataset.inq; askErr = '';
+    if (!askDraft || askDraft.id !== inqId) askDraft = { id: inqId, a: '' };
+    return openSheet('inq');
+  }
   var b = e.target.closest('[data-go],[data-sheet],[data-back],[data-open],[data-act],[data-cat],[data-day],[data-del],[data-key],[data-dir],[data-man]');
   if (!b) return;
+  if (b.dataset.sheet === 'ask'){ e.preventDefault(); if (!askDraft || askDraft.q === undefined) askDraft = { q: '' }; askErr = ''; return openSheet('ask'); }
+  if (b.dataset.act === 'send-ask'){ e.preventDefault(); return sendAsk(); }
+  if (b.dataset.act === 'send-answer'){ e.preventDefault(); return sendAnswer(); }
+  if (b.dataset.act === 'mo-erase'){ e.preventDefault(); return eraseAsk(); }
+  if (b.dataset.act === 'mo-play'){ e.preventDefault(); var pq = askById(inqId); closeSheet(); if (pq) playAnswer(pq); return; }
   if (b.dataset.sheet === 'addtask'){ e.preventDefault(); addDraft = { t: '', who: lc(PLAN.people.owner), when: '' }; return openSheet('addtask'); }
   if (b.dataset.act === 'add-task'){ e.preventDefault(); return addTask(); }
   if (b.dataset.act === 'bank-add'){ e.preventDefault(); bankAdd = true; closeSheet(); if (!BANKS_LIST) loadBanks(); return render(); }
@@ -3393,6 +3662,8 @@ $('sheet').addEventListener('keydown', function(e){
 });
 $('sheet').addEventListener('input', function(e){
   var el = e.target;
+  if (el.id === 'mo-q'){ askDraft = { q: el.value }; return; }
+  if (el.id === 'mo-a'){ askDraft = { id: inqId, a: el.value }; return; }
   if (el.id === 'lg-amt') return updateLogHint();
   if (el.type !== 'range') return;
   draft[el.dataset.k] = Number(el.value);
@@ -3456,6 +3727,11 @@ document.addEventListener('change', function(e){
 });
 
 window.addEventListener('popstate', function(){ go(location.hash.slice(1), false); });
+/* An alert tapped while the app is already open: the service worker says where to go. */
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function(e){
+  var g = e.data && e.data.go;
+  if (g && PLAN){ poll(); go(g, true); }
+});
 window.addEventListener('resize', function(){ if (PLAN) render(); });
 document.addEventListener('visibilitychange', function(){ if (!document.hidden) poll(); });
 
@@ -3506,7 +3782,7 @@ async function start(){
 
   var cached = store.get(cacheKey());
   if (cached && cached.plan){
-    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends, manual:cached.manual, tasks:cached.tasks });
+    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends, manual:cached.manual, tasks:cached.tasks, asks:cached.asks });
     $('boot').hidden = true; $('app').hidden = false;
     go(location.hash.slice(1) || 'today', false);
   }
