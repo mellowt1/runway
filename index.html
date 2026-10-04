@@ -2652,7 +2652,7 @@ function render(){
   var fx = fixes();
   SFX.alert(page === 'today' && !!fx);
   $('t-hero').innerHTML = env ? todayHeroHtml(env) : oHero('By ' + lastLabel, fmt(cur.end));
-  $('t-act').innerHTML = motherRowHtml() + actRowHtml(fx) + alertsLine();
+  $('t-act').innerHTML = whoHtml() + motherRowHtml() + actRowHtml(fx) + alertsLine();
   renderMother();
   $('t-cats').innerHTML = env ? everydayHtml(env) : '';
   $('t-bank').innerHTML = todayMoneyHtml(env);
@@ -2989,6 +2989,14 @@ function askNews(list){
   ASKS.forEach(function(x){ old[x.id] = x; });
   return list.some(function(x){ var o = old[x.id]; return (!o && !mine(x)) || (x.a && mine(x) && (!o || !o.a)); });
 }
+/* A Home Screen app opens without the name in the link, so it asks once. */
+function whoHtml(){
+  if (ME) return '';
+  return '<p class="o-eb" style="margin-top:14px">Who is this phone?</p><div class="o-chips" role="group" aria-label="Who is this phone">' +
+    [PLAN.people.owner, PLAN.people.other].map(function(p){
+      return '<button class="o-key" type="button" data-me="' + esc(p) + '">' + esc(p) + '</button>';
+    }).join('') + '</div>';
+}
 function motherRowHtml(){
   var h = toHear().length, w = toAnswer();
   if (h) return oAmb('MOTHER has ' + (h === 1 ? 'an answer' : h + ' answers'), 'data-go="mother"');
@@ -2999,7 +3007,7 @@ function renderMother(){
   var wait = toAnswer();
   $('mo-head').innerHTML = '<p class="mo-l dim">Interface 2037</p><p class="mo-l">Ready for inquiry<span class="mo-cur"></span></p>' +
     (askErr ? '<p class="err" role="alert">' + esc(askErr) + '</p>' : '') +
-    (ME ? '' : '<p class="o-note">Open your own link, the one that ends in your name, to ask MOTHER.</p>') +
+    whoHtml() +
     wait.map(function(x){ return oAmb(x.by + ' asks · answer', 'data-inq="' + esc(x.id) + '"'); }).join('');
   var list = ASKS.slice().sort(function(x, y){ return x.at < y.at ? 1 : -1; });
   $('mo-list').innerHTML = oGrp('Log', list.length ? String(list.length) : '') + (list.length ? list.map(function(x){
@@ -3554,6 +3562,14 @@ document.addEventListener('click', function(e){
     if (td.tdel) return deleteTask(td.tdel);
     if (td.twho !== undefined){ addDraft.who = td.twho; return renderSheet(); }
     if (td.twhen !== undefined){ addDraft.when = td.twhen; return renderSheet(); }
+  }
+  var who = e.target.closest('[data-me]');
+  if (who){
+    e.preventDefault();
+    ME = who.dataset.me; store.set('runway-me', ME);
+    if (!isIos) setManifest();
+    SFX.ok();
+    return render();
   }
   var inq = e.target.closest('[data-inq]');
   if (inq){
