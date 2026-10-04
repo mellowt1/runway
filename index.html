@@ -138,7 +138,7 @@ button.row:hover b{font-style:italic}
 .fc-r .track i{position:absolute;top:0;height:10px;background:var(--ink)}
 .fc-r.neg .track i{background:var(--over)}
 .fc-r .v .tk{display:block;font:400 14px/1 var(--serif);color:var(--over)}
-.tk-on{color:var(--ink)}
+.tk-on{color:var(--ink);display:block;border:0;background:none;padding:0;text-align:left}
 .tk-on::before{content:"■ "}
 .fc-r .track u{position:absolute;top:-8px;bottom:-8px;width:1px;background:var(--rule)}
 .notes{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
@@ -1045,7 +1045,8 @@ function stillToCome(i, st, list){
   list.forEach(function(c){
     if (!c.counts || c.b === 'everyday' || c.out <= 0) return;
     var hay = ' ' + normText(c.t.who + ' ' + (c.t.desc || '')).join(' ') + ' ';
-    var named = plan.filter(function(x){ return x.terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; }); });
+    var named = c.item ? plan.filter(function(x){ return x.name === c.item; })
+      : plan.filter(function(x){ return x.terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; }); });
     if (named.length) pay(c, named);
     else if (c.src === 'tag') pay(c, plan.filter(function(x){ return x.b === c.b; }));
   });
@@ -1069,6 +1070,21 @@ function restHtml(i){
 /* plan.forecast.mode "plan": the forecast is the agreed plan and nothing else. It runs
    from forecast.start (the money at the end of month 0) through the plan's months,
    moved only by the sliders; the bank and the entries never change it. */
+/* Month-end check: what the accounts held as month i closed, from the Worker's last
+   sync that month, plus the hand-entered savings as known then and the transfers into
+   savings up to the last day. Null until the month is over, or without the bank. */
+function monthEnd(i){
+  if (!hasBank() || !BANK.months || !BANK.months.m || i < 1) return null;
+  var b = monthBounds(i), snap = BANK.months.m[b.first.slice(0, 7)];
+  if (!snap || todayStr() <= b.last) return null;
+  var manual = 0;
+  (PLAN.bank && PLAN.bank.manual || []).forEach(function(pm){
+    var v = snap.manual && snap.manual[pm.id];
+    if (!v) return;
+    manual += Number(v.bal) + (v.confirmed ? 0 : savingsMoves({ bank: pm.bank, asOf: v.asOf || b.first }, b.last));
+  });
+  return { real: cents(snap.conn + manual), at: snap.at, partial: !!snap.partial, confirmed: Object.keys(snap.manual || {}).some(function(k){ return snap.manual[k].confirmed; }) };
+}
 function planOnly(){ return !!(PLAN.forecast && PLAN.forecast.mode === 'plan'); }
 /* Plan against what is happening: the difference by the last month, and month by
    month what made it. Small differences (under €25) count as on track. */
@@ -1080,6 +1096,7 @@ function onTrack(){
       if (it.name === 'Over budget') why.push({ key:m.key, label:m.label, name:'Everyday spending over the budget', amount:it.amount });
       else if (it.name === 'One-offs') why.push({ key:m.key, label:m.label, name:'Payments the plan has no line for', amount:it.amount });
       else if (it.name === 'Money in') why.push({ key:m.key, label:m.label, name:'Money in', amount:it.amount });
+      else if (it.name === 'Month-end check') why.push({ key:m.key, label:m.label, name:'Month-end check: the bank had ' + fmt(it.real), amount:it.amount });
     });
   });
   var gap = cents(real.end - plan.end);
@@ -1087,7 +1104,7 @@ function onTrack(){
 }
 function trackLineHtml(tk){
   if (!tk) return '';
-  if (tk.state === 'on') return '<p class="o-line tk-on">On track with the plan</p>';
+  if (tk.state === 'on') return '<button class="o-line tk-on" type="button" data-sheet="track">On track with the plan</button>';
   if (tk.state === 'ahead') return '<button class="o-row" type="button" data-sheet="track"><span>' + esc(fmt(tk.gap)) + ' ahead of the plan</span><span class="lead"></span><span class="v">Why ›</span></button>';
   return oAmb(fmt(-tk.gap) + ' behind the plan', 'data-sheet="track"');
 }
@@ -1139,7 +1156,10 @@ function model(st, track){
     }
     items.forEach(function(it){ bal += it.amount; });
     bal = bridgeIn(m, bal, items);
-    M.push({ key:m.key, label:m.label, items:items, bal:bal, bridged: bridgedIn(items) });
+    /* Once a month is over, the bank says where it really ended; the track goes on from there. */
+    var me = PM && track ? monthEnd(i) : null;
+    if (me){ var diff = cents(me.real - bal); if (diff) items.push({ name:'Month-end check', amount: diff, real: me.real }); bal = me.real; }
+    M.push({ key:m.key, label:m.label, items:items, bal:bal, bridged: bridgedIn(items), checked: !!me });
   });
 
   var by = {};
@@ -1454,6 +1474,22 @@ var SAVINGS = /(^| )(spaar[a-z]*|sparen|direct sparen|savings?|vaults?|pockets?|
 var ATM = /(^| )(gea|geldautomaat|geldopname|atm|cash withdrawal)( |$)/;
 function bigAmount(){ return (PLAN.bank && PLAN.bank.big) || 500; }
 
+/* A bill whose payee the bank names differently is still the bill when the amount is
+   the plan's: to the cent below €200 (a dinner can cost €51, the phone bill is €51.00
+   every month), within 2% from €200 up (rent and loans move a little with indexing). */
+function amountMatch(out){
+  if (!(out > 0)) return null;
+  var best = null;
+  [['bills', PLAN.fixed || []], ['debt', PLAN.loans || []], ['bills', (PLAN.subs || []).filter(function(x){ return !x.cancelled; })]].forEach(function(g){
+    g[1].forEach(function(x){
+      var a = Number(x.amount) || 0;
+      if (a < 10) return;
+      var d = Math.abs(out - a), ok = a < 200 ? d < 0.005 : d <= a * 0.02;
+      if (ok && (!best || d < best.d)) best = { b: g[0], name: x.name, d: d };
+    });
+  });
+  return best;
+}
 function classify(t){
   var tg = tags(), tag = tg.pay[t.id] || {}, rule = tg.payee[payeeKey(payeeOf(t))] || null;
   var c = { t:t, tag:tag, rule:rule, hidden: !!tag.hide, ns: !!(tag.ns || t.own), own: !!t.own, flag: !!tag.flag };
@@ -1468,7 +1504,9 @@ function classify(t){
       var m = matchers().filter(function(x){
         return x.terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; });
       })[0];
+      var am = m ? null : amountMatch(-t.amt);
       if (m){ c.b = m.b; c.src = 'plan'; }
+      else if (am){ c.b = am.b; c.src = 'amount'; c.item = am.name; }
       else if (-t.amt >= bigAmount()){ c.b = 'check'; c.src = 'auto'; }
       else { c.b = 'everyday'; c.src = 'auto'; }
     }
@@ -1529,11 +1567,11 @@ function manualAccounts(){
    date: money put aside at the same bank adds to it, money taken out of savings into
    a connected account comes off it. Otherwise a standing order out of savings would
    be counted twice, once in each account. */
-function savingsMoves(m){
+function savingsMoves(m, until){
   if (!hasBank() || !m.asOf) return 0;
   var bank = String(m.bank || '').toLowerCase();
   return cents(classified().reduce(function(t, c){
-    if (c.b !== 'save' || c.own || c.hidden || c.t.d <= m.asOf) return t;
+    if (c.b !== 'save' || c.own || c.hidden || c.t.d <= m.asOf || (until && c.t.d > until)) return t;
     var a = accountOf(c.t.k);
     if (bank && (!a || bankShort(a.bank).toLowerCase().indexOf(bankShort(bank).toLowerCase()) !== 0)) return t;
     return t - c.t.amt;
@@ -2302,10 +2340,11 @@ function renderSheet(){
           return oRow(w.label + ' · ' + w.name, (w.amount > 0 ? '+' : '−') + fmt(Math.abs(w.amount)), '', w.amount < 0 ? 'over' : '');
         }).join('') : '') +
         oGrp('End of each month', 'plan · now') + tq.plan.M.map(function(m, i){
-          var r = tq.real.M[i] ? tq.real.M[i].bal : m.bal;
-          return oRow(m.label, fmt(m.bal) + ' · ' + fmt(r), '', r - m.bal <= -25 ? 'over' : '');
+          var rm = tq.real.M[i], r = rm ? rm.bal : m.bal;
+          return oRow(m.label + (rm && rm.checked ? ' · bank' : ''), fmt(m.bal) + ' · ' + fmt(r), '', r - m.bal <= -25 ? 'over' : '');
         }).join('') +
-        '<p class="o-foot">Spending less than the budget does not move these figures. Bills are counted as the plan has them.</p>';
+        '<p class="o-foot">A month marked bank is what the accounts and savings really held as it closed. ' +
+          'Before that: spending over the budget, payments the plan has no line for, and money in. Spending less does not move it until the month-end check.</p>';
     }
   }
 
@@ -2719,7 +2758,7 @@ function render(){
   var fx = fixes();
   SFX.alert(page === 'today' && !!fx);
   $('t-hero').innerHTML = env ? todayHeroHtml(env) : oHero('By ' + lastLabel, fmt(cur.end));
-  $('t-act').innerHTML = whoHtml() + motherRowHtml() + actRowHtml(fx) + alertsLine();
+  $('t-act').innerHTML = whoHtml() + savingsAskHtml() + motherRowHtml() + actRowHtml(fx) + alertsLine();
   renderMother();
   $('t-cats').innerHTML = env ? everydayHtml(env) : '';
   $('t-bank').innerHTML = todayMoneyHtml(env);
@@ -3066,6 +3105,15 @@ function whoHtml(){
     [PLAN.people.owner, PLAN.people.other].map(function(p){
       return '<button class="o-key" type="button" data-me="' + esc(p) + '">' + esc(p) + '</button>';
     }).join('') + '</div>';
+}
+/* The month-end check needs the savings as the month closed; on the 1st to 3rd,
+   until someone types it in, Today asks for it. */
+function savingsAskHtml(){
+  var d = todayStr(), first = d.slice(0, 8) + '01';
+  if (Number(d.slice(8, 10)) > 3) return '';
+  return manualAccounts().filter(function(m){ return m.id && (!m.asOf || m.asOf < first); }).map(function(m){
+    return oAmb('Type the ' + m.name.toLowerCase() + ' balance for the month-end check', 'data-man="' + esc(m.id) + '"');
+  }).join('');
 }
 function motherRowHtml(){
   var h = toHear().length, w = toAnswer();

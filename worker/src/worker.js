@@ -50,7 +50,7 @@
  * "something changed" cheaply. The POST/DELETE responses carry their own doc's rev.
  */
 
-import { bankRoutes, bankSummary, syncAll } from './bank.js';
+import { bankRoutes, bankSummary, syncAll, confirmManual } from './bank.js';
 import { alertRoutes, notify } from './alerts.js';
 
 const ORIGINS = new Set([
@@ -310,6 +310,7 @@ async function handleManual(request, env, code) {
   set[id] = entry;
   const rec = { set, rev: (prev.rev || 0) + 1 };
   await env.RUNWAY_KV.put(key, JSON.stringify(rec), { expirationTtl: TTL });
+  await confirmManual(env, code, id, bal, asOf);
   return json({ ok: true, entry, rev: rec.rev }, request);
 }
 

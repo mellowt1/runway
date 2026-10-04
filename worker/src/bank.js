@@ -9,6 +9,9 @@
  *   tags:<code>    what the people changed: a payment moved to another bucket, marked
  *                  as not spending, hidden, or flagged; payee rules ("always"); and
  *                  which account is the pocket for which everyday budget (acct)
+ *   month:<code>   the month-end check: every sync writes this month's balances, so the
+ *                  last sync of a month leaves what the accounts held as it closed,
+ *                  with the hand-entered savings as known then
  *
  * The bank is the record: nothing here edits an amount or a date. Pending movements
  * are left out until they book. Money moved between two connected accounts (same
@@ -334,7 +337,59 @@ export async function syncCode(env, code, { psu } = {}) {
   meta.rev = (meta.rev || 0) + 1;
   await write(env, `banktx:${code}`, { list, rev: (txDoc.rev || 0) + 1 });
   await write(env, metaKey, meta);
+  await snapMonth(env, code, meta, errors.length > 0);
   return { ok: !errors.length, added, errors };
+}
+
+// The calendar month in the Netherlands, YYYY-MM, which is how the plan counts months.
+export function nlMonth(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit' }).format(d);
+}
+function prevMonth(m) {
+  const [y, mo] = m.split('-').map(Number);
+  return mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, '0')}`;
+}
+// The hand-entered accounts as known now: the plan's, or a newer one typed in the app.
+async function manualNow(env, code) {
+  const [plan, doc] = await Promise.all([read(env, `plan:${code}`), read(env, `manual:${code}`)]);
+  const out = {};
+  for (const m of (plan && plan.bank && plan.bank.manual) || []) {
+    if (!m.id) continue;
+    const o = doc && doc.set && doc.set[m.id];
+    const use = o && (!m.asOf || o.asOf >= m.asOf) ? o : m;
+    if (Number.isFinite(Number(use.bal))) out[m.id] = { bal: Number(use.bal), asOf: use.asOf || null };
+  }
+  return out;
+}
+// Every sync overwrites this month's entry; the month's last sync is what stays.
+export async function snapMonth(env, code, meta, partial) {
+  let conn = 0, n = 0;
+  for (const c of meta.conns || []) {
+    for (const a of c.accounts || []) {
+      if ((!a.cur || a.cur === 'EUR') && Number.isFinite(a.bal)) { conn += a.bal; n++; }
+    }
+  }
+  if (!n) return;
+  const key = `month:${code}`;
+  const doc = (await read(env, key)) || { m: {}, rev: 0 };
+  const m = nlMonth();
+  doc.m[m] = { conn: Math.round(conn * 100) / 100, manual: await manualNow(env, code), at: new Date().toISOString() };
+  if (partial) doc.m[m].partial = true;
+  doc.rev = (doc.rev || 0) + 1;
+  await write(env, key, doc);
+}
+// A savings balance typed in on the 1st to 3rd is what the account held as the
+// previous month closed: it corrects that month's check.
+export async function confirmManual(env, code, id, bal, asOf) {
+  const day = Number(asOf.slice(8, 10));
+  if (!(day >= 1 && day <= 3)) return;
+  const key = `month:${code}`;
+  const doc = await read(env, key);
+  const pm = prevMonth(asOf.slice(0, 7));
+  if (!doc || !doc.m || !doc.m[pm]) return;
+  doc.m[pm].manual = Object.assign({}, doc.m[pm].manual, { [id]: { bal, asOf: asOf, confirmed: true } });
+  doc.rev = (doc.rev || 0) + 1;
+  await write(env, key, doc);
 }
 
 export async function syncAll(env) {
@@ -648,16 +703,17 @@ export async function bankRoutes(request, env, ctx, url, json) {
   }
   const action = bank[2];
   if (!action && request.method === 'GET') {
-    const [meta, tx, tags] = await Promise.all([
+    const [meta, tx, tags, months] = await Promise.all([
       read(env, `bank:${code}`),
       env.RUNWAY_KV.get(`banktx:${code}`),
       env.RUNWAY_KV.get(`tags:${code}`),
+      env.RUNWAY_KV.get(`month:${code}`),
     ]);
     // The transaction list goes out as stored text, unparsed: it is the big one.
     const pm = publicMeta(meta);
     const body = `{"conns":${JSON.stringify(pm.conns)},"synced":${JSON.stringify(pm.synced)},"rev":${pm.rev},"tx":${
       tx || '{"list":[],"rev":0}'
-    },"tags":${tags || '{"pay":{},"payee":{},"rev":0}'}}`;
+    },"tags":${tags || '{"pay":{},"payee":{},"rev":0}'},"months":${months || '{"m":{},"rev":0}'}}`;
     return json.raw(body);
   }
   if (action === 'banks' && request.method === 'GET') {
