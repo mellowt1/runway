@@ -1056,11 +1056,12 @@ function model(st){
   return { M:M, by:by, monthly:monthly, subsT:subsT, end:M[M.length-1].bal, first:first };
 }
 /* The bridge covers one month (bridge.month) and no more than bridge.max: only what
-   it takes to bring that month back to zero. A month still below zero is not covered. */
+   it takes to bring that month back to zero, or all of bridge.max when bridge.full
+   (an agreed top-up). A month still below zero is not covered. */
 function bridgeIn(m, bal, items){
   var b = PLAN.bridge || {};
-  if (m.key !== b.month || bal >= 0) return bal;
-  var amt = cents(b.max ? Math.min(-bal, b.max) : -bal);
+  if (m.key !== b.month || (bal >= 0 && !b.full)) return bal;
+  var amt = cents(b.full ? b.max : b.max ? Math.min(-bal, b.max) : -bal);
   items.push({ name: b.label, amount: amt, bridge: true });
   return bal + amt;
 }
