@@ -15,8 +15,8 @@
  *   manual  newer balances for the accounts the plan lists as entered by hand (a
  *           savings account no bank connection covers), typed in by the reader. Also
  *           a fact, so also out of reach of "back to the plan".
- *   tasks   to-dos either person adds, each for one of them, with its tick. The
- *           plan's own tasks stay in the plan; their ticks stay in state.
+ *   tasks   every to-do, each for one of them, with its tick. The plan's own tasks
+ *           are copied in on first read; from then on either person edits them here.
  *   asks    questions for MOTHER: one person asks, the other answers.
  *
  * Anyone with the code can read all of them and write state, spends, manual and tasks. That is the
@@ -164,7 +164,7 @@ async function handlePlan(request, env, code) {
     const st = (await readDoc(env, `state:${code}`)) || {};
     const sp = (await readDoc(env, `spends:${code}`)) || {};
     const md = (await readDoc(env, `manual:${code}`)) || {};
-    const tk = (await readDoc(env, `tasks:${code}`)) || {};
+    const tk = await loadTasks(env, code, plan);
     const ak = (await readDoc(env, `asks:${code}`)) || {};
     const bank = await bankSummary(env, code);
     return json(
@@ -174,6 +174,8 @@ async function handlePlan(request, env, code) {
         updated: st.updated || null,
         by: st.by || null,
         rev: (st.rev || 0) + (sp.rev || 0) + (md.rev || 0) + (tk.rev || 0) + (ak.rev || 0),
+        // One rev per document: two different changes can add up to the same sum.
+        sig: [st.rev || 0, sp.rev || 0, md.rev || 0, tk.rev || 0, ak.rev || 0].join('.'),
         spends: Array.isArray(sp.list) ? sp.list : [],
         manual: md.set || {},
         tasks: Array.isArray(tk.list) ? tk.list : [],
@@ -314,17 +316,63 @@ async function handleManual(request, env, code) {
   return json({ ok: true, entry, rev: rec.rev }, request);
 }
 
+const TASK_ID = /^[a-z0-9]{2,16}$/;
+function oneLine(v, n) {
+  return String(v || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, n).trim();
+}
 function cleanTask(t) {
   if (!t || typeof t !== 'object') return null;
   const id = String(t.id || '');
-  const title = String(t.t || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 60).trim();
+  const title = oneLine(t.t, 60);
   const who = cleanBy(t.who).toLowerCase();
   const when = String(t.when || '').replace(/[^\p{L}\p{N} .:-]/gu, '').trim().slice(0, 20);
-  if (!SPEND_ID.test(id) || !title || !who) return null;
-  return { id, t: title, who, when, done: !!t.done };
+  if (!TASK_ID.test(id) || !title || !who) return null;
+  const out = { id, t: title, who, when, done: !!t.done };
+  const note = cleanLines(t.note, 600);
+  if (note) out.note = note;
+  const meta = oneLine(t.meta, 60);
+  if (meta) out.meta = meta;
+  const tel = String(t.tel || '').replace(/[^0-9+]/g, '').slice(0, 20);
+  if (tel) out.tel = tel;
+  if (isRealDate(t.due)) out.due = t.due;
+  return out;
+}
+
+// Every task lives in this one document, the plan's own included: the first read
+// after a plan names a task copies it in (with any tick it had in state), and
+// `seen` remembers it so a deleted plan task stays deleted after a re-seed.
+async function loadTasks(env, code, plan) {
+  const key = `tasks:${code}`;
+  const doc = (await readDoc(env, key)) || {};
+  const list = Array.isArray(doc.list) ? doc.list : [];
+  const seen = Array.isArray(doc.seen) ? doc.seen : [];
+  if (!plan) plan = await readDoc(env, `plan:${code}`);
+  if (!plan) return { list, seen, rev: doc.rev || 0 };
+  const people = plan.people || {};
+  const owner = String(people.owner || '').toLowerCase();
+  const other = String(people.other || '').toLowerCase();
+  const fromPlan = (Array.isArray(plan.tasks) ? plan.tasks : [])
+    .map((t) => ({ id: t.id, t: t.title, who: owner, when: t.dueLabel || '', due: t.due, tel: t.tel, meta: t.meta, note: t.detail }))
+    .concat((Array.isArray(plan.paul) ? plan.paul : []).map((title, i) => ({ id: 'paul' + i, t: title, who: other })));
+  const fresh = fromPlan.filter((t) => t.id && seen.indexOf(t.id) === -1);
+  if (!fresh.length) return { list, seen, rev: doc.rev || 0 };
+  const st = (await readDoc(env, `state:${code}`)) || {};
+  const ticks = (st.state && st.state.tasks) || {};
+  const added = fresh
+    .map((t) => cleanTask(Object.assign({}, t, { done: ticks[t.id] === true })))
+    .filter(Boolean)
+    .map((t) => Object.assign(t, { by: people.other || null, at: plan.asOf || null }));
+  const rec = {
+    list: added.concat(list.filter((x) => x && !added.some((a) => a.id === x.id))),
+    seen: seen.concat(fresh.map((t) => t.id)),
+    rev: (doc.rev || 0) + 1,
+  };
+  await env.RUNWAY_KV.put(key, JSON.stringify(rec), { expirationTtl: TTL });
+  return rec;
 }
 
 // Tasks are their own document, like spends: no state write can touch them.
+// Every write says who made it (`upd`, `updAt`), so the other phone can show it.
 async function handleTask(request, env, code, id) {
   const key = `tasks:${code}`;
   const body = await request.json().catch(() => null);
@@ -333,29 +381,33 @@ async function handleTask(request, env, code, id) {
   if (request.method === 'POST' && !id) {
     const task = cleanTask(body && body.task);
     if (!task) return json({ error: 'task required: id, t, who' }, request, 400);
-    const prev = (await readDoc(env, key)) || {};
-    const list = Array.isArray(prev.list) ? prev.list : [];
+    const prev = await loadTasks(env, code);
+    const list = prev.list;
     const old = list.find((x) => x && x.id === task.id);
     if (!old && list.length >= MAX_TASKS) return json({ error: 'too many tasks' }, request, 413);
     task.by = old ? old.by : by || null;
     task.at = old ? old.at : new Date().toISOString();
-    const rec = { list: list.filter((x) => x && x.id !== task.id).concat([task]), rev: (prev.rev || 0) + 1 };
+    task.upd = by || null;
+    task.updAt = new Date().toISOString();
+    const rec = { list: list.filter((x) => x && x.id !== task.id).concat([task]), seen: prev.seen, rev: (prev.rev || 0) + 1 };
+    if (old) rec.list = list.map((x) => (x && x.id === task.id ? task : x));
     await env.RUNWAY_KV.put(key, JSON.stringify(rec), { expirationTtl: TTL });
     let alerted = null;
     if (!old && by) {
       const forWho = task.who.charAt(0).toUpperCase() + task.who.slice(1);
       alerted = await notify(env, code, { title: 'Runway', body: `${by} added a task for ${forWho}: ${task.t}` }, null, by);
+    } else if (old && by && task.done && !old.done) {
+      alerted = await notify(env, code, { title: 'Runway', body: `${by} ticked off: ${task.t}` }, null, by);
     }
     return json({ ok: true, task, rev: rec.rev, alerted }, request);
   }
 
   if (request.method === 'DELETE' && id) {
-    if (!SPEND_ID.test(id)) return json({ error: 'bad id' }, request, 400);
-    const prev = (await readDoc(env, key)) || {};
-    const before = Array.isArray(prev.list) ? prev.list : [];
-    const list = before.filter((x) => x && x.id !== id);
-    if (list.length === before.length) return json({ ok: true, removed: false, rev: prev.rev || 0 }, request);
-    const rec = { list, rev: (prev.rev || 0) + 1 };
+    if (!TASK_ID.test(id)) return json({ error: 'bad id' }, request, 400);
+    const prev = await loadTasks(env, code);
+    const list = prev.list.filter((x) => x && x.id !== id);
+    if (list.length === prev.list.length) return json({ ok: true, removed: false, rev: prev.rev || 0 }, request);
+    const rec = { list, seen: prev.seen, rev: (prev.rev || 0) + 1 };
     await env.RUNWAY_KV.put(key, JSON.stringify(rec), { expirationTtl: TTL });
     return json({ ok: true, removed: true, rev: rec.rev }, request);
   }

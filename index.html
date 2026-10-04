@@ -573,6 +573,30 @@ details p{font:400 21px/1.2 var(--serif)}
 .o-task.done{color:var(--muted)}
 .o-task.done .o-open > span:first-child{text-decoration:line-through}
 .o-row .del{align-self:center}
+/* Tasks: a block meter for what is done, a live line for the other side's last change */
+.o-meter{display:flex;gap:4px;height:14px;margin-top:14px}
+.o-meter i{flex:1;border:1px solid var(--rule)}
+.o-meter i.on{background:var(--ink);border-color:var(--ink);box-shadow:0 0 6px var(--glow)}
+.o-live{display:flex;align-items:center;gap:8px;margin:0 0 12px;font:400 13px/1.3 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--over)}
+.o-live .dot{width:8px;height:8px;flex-shrink:0;background:var(--over)}
+.o-task .new{text-transform:uppercase}
+.lg-head .o-key{justify-self:end;min-height:40px;font-size:20px;padding:0 12px}
+#tk-note{min-height:84px;font:400 22px/1.2 var(--serif);text-transform:none}
+@media (prefers-reduced-motion:no-preference){
+  .o-meter i.fill{animation:k-fill .5s steps(4) both}
+  .o-task.just .o-box{animation:k-box .45s steps(3)}
+  .o-task.just .o-open > span:first-child{text-decoration:none;
+    background:linear-gradient(currentColor,currentColor) no-repeat 0 55%/100% 2px;animation:k-strike .5s steps(8) both}
+  .o-task.just{animation:k-inv .5s steps(2)}
+  .o-task.ping{animation:k-ping 1s steps(2) 3}
+  .o-live .dot{animation:mo-blink 1s steps(1) infinite}
+  @keyframes k-fill{from{background:none;box-shadow:none}}
+  @keyframes k-box{0%{transform:translateY(1px) scale(1.5)}100%{transform:translateY(1px)}}
+  @keyframes k-strike{from{background-size:0 2px}}
+  @keyframes k-inv{0%{background:var(--ink);color:var(--ground)}100%{background:none}}
+  @keyframes k-ping{0%{background:rgba(238,184,104,.22)}100%{background:none}}
+}
+@media (prefers-reduced-motion:reduce){.o-task.done .o-open > span:first-child{text-decoration:line-through}}
 #b-sync .o-key{font-size:20px}
 .o-row:focus-visible,.o-key:focus-visible,.o-amb:focus-visible,.o-tick:focus-visible,.o-open:focus-visible{outline:3px solid #6fd3ff;outline-offset:2px}
 
@@ -763,7 +787,7 @@ if (qs.get('me')) store.set('runway-me', ME);
 var PLAN = null;      // the figures the owner maintains
 var S = null;         // what is on screen now
 var BASE = null;      // the plan's own defaults, to compare against
-var REMOTE = { rev:0, by:null, updated:null };
+var REMOTE = { rev:0, sig:null, by:null, updated:null };
 var SPENDS = [];      // logged spends as the Worker last returned them
 var MANUAL = {};      // newer balances typed in for the hand-entered accounts, by account id
 var OUTBOX = [];      // spend writes not yet acknowledged: { op:'put', spend, by } | { op:'del', id }
@@ -1197,20 +1221,21 @@ function dip(M){
 function cacheKey(){ return 'runway-cache-' + CODE; }
 function outboxKey(){ return 'runway-outbox-' + CODE; }
 function saveCache(state){
-  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS, manual:MANUAL, tasks:TASKS, asks:ASKS });
+  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, sig:REMOTE.sig, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS, manual:MANUAL, tasks:TASKS, asks:ASKS });
 }
 
 function applyRemote(data){
   PLAN = data.plan;
   CUR = PLAN.currency || '€';
   BASE = defaults(PLAN);
-  REMOTE = { rev: data.rev||0, by: data.by||null, updated: data.updated||null };
+  REMOTE = { rev: data.rev||0, sig: data.sig||null, by: data.by||null, updated: data.updated||null };
   var incoming = data.state ? Object.assign({}, BASE, data.state) : Object.assign({}, BASE);
   incoming.tasks = (data.state && data.state.tasks) || {};
   S = incoming;
   SPENDS = Array.isArray(data.spends) ? data.spends : [];
   MANUAL = data.manual && typeof data.manual === 'object' ? data.manual : {};
   TASKS = Array.isArray(data.tasks) ? data.tasks : [];
+  TASKS_ALL = !!data.sig;
   ASKS = Array.isArray(data.asks) ? data.asks : [];
   if (data.bank) BANKINFO = data.bank;
   MATCH = null; CL = null;
@@ -1301,10 +1326,10 @@ async function poll(){
       BANKINFO = data.bank;
       if (bankKey && data.bank.rev !== BANKREV){ BANKREV = data.bank.rev; bankMoved = await pullBank(); }
     }
-    if ((data.rev||0) === REMOTE.rev){ if (bankMoved){ render(); renderSheet(); } return; }
+    /* The Worker sends one rev per document as sig; the sum alone can come round to a value already seen. */
+    if (data.sig ? data.sig === REMOTE.sig : (data.rev||0) === REMOTE.rev){ if (bankMoved){ render(); renderSheet(); } return; }
     var keepPage = page;
-    var known = TASKS.map(function(x){ return x.id; });
-    var newTask = (data.tasks || []).some(function(x){ return known.indexOf(x.id) === -1 && x.by && x.by !== ME; });
+    var newTask = taskNews(data.tasks || []);
     var newAsk = askNews(data.asks || []);
     if ((data.by && data.by !== ME) || newTask || newAsk) SFX.incoming();
     applyRemote(data);
@@ -1320,7 +1345,7 @@ function push(){
   clearTimeout(pushTimer);
   pushTimer = setTimeout(async function(){
     var body = { by: ME || null, state: {
-      sept:S.sept, salary:S.salary, gem:S.gem, subs:S.subs, tasks:S.tasks
+      sept:S.sept, salary:S.salary, gem:S.gem, subs:S.subs
     }};
     PLAN.flex.forEach(function(f){ body.state[f.id] = S[f.id]; });
     (PLAN.extras||[]).forEach(function(e){ body.state[e.id] = S[e.id]; });
@@ -1330,7 +1355,7 @@ function push(){
       });
       if (res.ok){
         var out = await res.json();
-        REMOTE = { rev: out.rev, by: ME || null, updated: out.updated };
+        REMOTE = { rev: out.rev, sig: null, by: ME || null, updated: out.updated };
       }
     } catch(e){ /* it will go up on the next change */ }
     dirty = false;
@@ -1347,7 +1372,7 @@ async function resetAll(){
       method:'DELETE', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ by: ME || null })
     });
-    if (res.ok){ var out = await res.json(); REMOTE = { rev: out.rev, by: ME||null, updated: out.updated }; }
+    if (res.ok){ var out = await res.json(); REMOTE = { rev: out.rev, sig: null, by: ME||null, updated: out.updated }; }
   } catch(e){}
   renderLive();
 }
@@ -2363,15 +2388,17 @@ function renderSheet(){
   }
 
   else if (sheetKind === 'task'){
-    var k = allTasks().filter(function(x){ return x.id === taskDraft.id; })[0];
+    var k = taskById(taskDraft.id);
     if (!k){ html = '<h2 id="sheet-title">Gone</h2><p class="hint">This task is no longer in the list.</p>'; }
     else {
-      html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">Task</h2><span></span></div>' +
+      html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">Task</h2>' +
+          (k.src === 'app' ? '<button class="o-key" type="button" data-tedit="' + esc(k.id) + '">Edit</button>' : '<span></span>') + '</div>' +
         '<p class="o-note" style="font-size:30px">' + esc(k.t) + '</p>' +
         '<p class="o-sm">For ' + esc(k.who) + (k.by ? ' · added by ' + esc(k.by) : '') + (k.when ? ' · ' + esc(k.when) : '') + '</p>' +
+        (k.upd && k.updAt ? '<p class="o-sm">Last change: ' + esc(k.upd) + ' · ' + esc(stamp(k.updAt)) + '</p>' : '') +
         (k.tel ? oGrp('Number') + '<a class="o-row" href="tel:' + esc(k.tel) + '"><span>' + esc(k.meta) + '</span><span class="lead"></span><span class="v">Call ›</span></a>'
           : k.meta ? oGrp('Where') + oRow(k.meta, '') : '') +
-        (k.detail ? oGrp('What to say') + '<p class="o-note">' + esc(k.detail) + '</p>' : '') +
+        (k.note ? oGrp('Notes') + '<p class="o-note" style="white-space:pre-line">' + esc(k.note) + '</p>' : '') +
         '<button class="o-key" type="button" data-tick="' + esc(k.id) + '" style="width:100%;margin-top:18px">[ ' + (k.done ? 'Not done' : 'Done') + ' ]</button>' +
         (k.src === 'app' ? '<button class="o-row dim" type="button" data-tdel="' + esc(k.id) + '"><span>Delete the task</span></button>' : '');
     }
@@ -2379,18 +2406,23 @@ function renderSheet(){
 
   else if (sheetKind === 'addtask'){
     var people = [PLAN.people.owner, PLAN.people.other];
-    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Cancel</button><h2 id="sheet-title">New task</h2><span></span></div>' +
+    var whens = ['', 'This week', 'This month'];
+    if (addDraft.custom && whens.indexOf(addDraft.custom) === -1) whens.push(addDraft.custom);
+    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Cancel</button><h2 id="sheet-title">' + (addDraft.id ? 'Edit task' : 'New task') + '</h2><span></span></div>' +
       '<label class="memo"><span class="eyebrow">What</span><input id="tk-t" type="text" maxlength="60" autocomplete="off" enterkeyhint="done" ' +
         'placeholder="Call the gemeente" value="' + esc(addDraft.t) + '"></label>' +
       '<p class="o-eb" style="margin-top:14px">For</p><div class="o-chips" role="group" aria-label="For">' + people.map(function(p){
         return '<button class="o-key" type="button" data-twho="' + esc(lc(p)) + '" aria-pressed="' + (addDraft.who === lc(p)) + '">' + esc(p) + '</button>';
       }).join('') + '</div>' +
-      '<p class="o-eb" style="margin-top:10px">When</p><div class="o-chips" role="group" aria-label="When">' + ['', 'This week', 'This month'].map(function(w){
+      '<p class="o-eb" style="margin-top:10px">When</p><div class="o-chips" role="group" aria-label="When">' + whens.map(function(w){
         return '<button class="o-key" type="button" data-twhen="' + esc(w) + '" aria-pressed="' + (addDraft.when === w) + '">' + esc(w || 'No date') + '</button>';
       }).join('') + '</div>' +
+      '<label class="memo"><span class="eyebrow">Notes</span><textarea class="mo-ta" id="tk-note" maxlength="600" rows="3" ' +
+        'placeholder="What to say, numbers, anything" aria-label="Notes">' + esc(addDraft.note || '') + '</textarea></label>' +
       '<p class="err" id="tk-err" role="alert"></p>' +
-      '<button class="enter" data-act="add-task">Add the task</button>' +
-      '<p class="o-foot">The other phone gets an alert</p>';
+      '<button class="enter" data-act="add-task">' + (addDraft.id ? 'Save' : 'Add the task') + '</button>' +
+      (addDraft.id ? '<button class="o-row dim" type="button" data-tdel="' + esc(addDraft.id) + '"><span>Delete the task</span></button>'
+        : '<p class="o-foot">The other phone gets an alert</p>');
   }
 
   else if (sheetKind === 'ask'){
@@ -2744,7 +2776,7 @@ function render(){
   $('tabs').firstElementChild.innerHTML = PAGES.map(function(p){
     var here = ['month','debts','spends','bank','payments'].indexOf(page) > -1 ? 'today' : (page === 'subs' ? cameFrom : page);
     return '<button data-go="' + p[0] + '" aria-current="' + (here === p[0] ? 'page' : 'false') + '">' +
-      p[1] + '<em' + (p[0] === 'mother' && (toHear().length || toAnswer().length) ? ' class="call"' : '') + '></em></button>';
+      p[1] + '<em' + ((p[0] === 'mother' && (toHear().length || toAnswer().length)) || (p[0] === 'tasks' && taskPings().length) ? ' class="call"' : '') + '></em></button>';
   }).join('');
 
   var cur = model(S), base = model(BASE);
@@ -2842,11 +2874,18 @@ function render(){
   var left = mine.filter(function(k){ return !k.done; }).length;
   $('k-count').textContent = left ? left + ' left' : 'all done';
   var next = mine.filter(function(k){ return !k.done && k.due; }).sort(function(a, b){ return a.due < b.due ? -1 : 1; })[0];
-  $('k-hero').innerHTML = (next ? oHero('Next deadline', shortDate(next.due), next.t) : oHero('To do', String(left), left === 1 ? 'task left' : 'tasks left')) +
+  var kRects = page === 'tasks' ? taskRects() : null;
+  $('k-hero').innerHTML = taskActLine() +
+    (next ? oHero('Next deadline', shortDate(next.due), next.t) : oHero('To do', String(left), left === 1 ? 'task left' : 'tasks left')) +
+    taskMeterHtml(T) +
     (taskErr ? '<p class="o-sm" style="color:var(--over)">' + esc(taskErr) + '</p>' : '');
   $('k-rule').innerHTML = PLAN.rule ? oAmb('Rule · ' + PLAN.rule.title, 'data-sheet="rule"') : '';
   $('k-list').innerHTML = taskGroupHtml(PLAN.people.owner, mine) + (PLAN.script ? oRow(PLAN.script.eyebrow, '', 'data-sheet="script"') : '');
   $('k-paul').innerHTML = taskGroupHtml(PLAN.people.other, theirs);
+  /* Rows moved by someone else's change slide too; seen once this screen has been open a moment. */
+  if (kRects) taskSlide(kRects);
+  clearTimeout(taskSeenTimer);
+  if (page === 'tasks' && !document.hidden && taskPings().length) taskSeenTimer = setTimeout(markTasksSeen, 6000);
   $('k-foot').textContent = (PLAN.handoff ? 'From ' + PLAN.handoff + '. ' : '') + (PLAN.footnote || '');
 
   /* This month's spends */
@@ -2991,60 +3030,131 @@ function syncedAt(){
 }
 
 /* ─────────────────────────── tasks ───────────────────────────
-   The plan's tasks are the owner's, with their ticks in state; the "on these" list
-   is the other person's, ticked the same way. Tasks either of them adds in the app
-   live in the Worker's own tasks document, ticks and all, and adding one for
-   someone sends an alert to the other phones. */
-var TASKS = [];            // tasks added in the app, as the Worker last returned them
-var taskBusy = 0, taskErr = '', taskDraft = null, addDraft = null;
+   Every task lives in the Worker's tasks document, the plan's own included (the
+   Worker copies them in the first time), so either person can tick, edit or delete
+   any of them and the other phone sees it on its next poll. Each write carries who
+   made it; a change from the other side blinks on this phone until it has been seen. */
+var TASKS = [];            // as the Worker last returned them
+var TASKS_ALL = false;     // false: an older Worker, the plan's tasks still tick in state
+var taskBusy = 0, taskErr = '', taskDraft = null, addDraft = null, justTicked = null, meterWas = null, taskSeenTimer = 0;
 function allTasks(){
   var owner = lc(PLAN.people.owner), other = lc(PLAN.people.other);
-  return PLAN.tasks.map(function(t){
+  var plan = TASKS_ALL ? [] : PLAN.tasks.map(function(t){
     return { id:t.id, t:t.title, who:owner, when:t.dueLabel || '', due:t.due || null, done:!!S.tasks[t.id], src:'plan',
-      tel:t.tel, meta:t.meta, detail:t.detail, by:PLAN.people.other, hard:!!t.due };
+      tel:t.tel, meta:t.meta, note:t.detail, by:PLAN.people.other };
   }).concat((PLAN.paul || []).map(function(title, i){
     var id = 'paul' + i;
     return { id:id, t:title, who:other, when:'', done:!!S.tasks[id], src:'plan', by:PLAN.people.other };
-  })).concat(TASKS.map(function(x){
-    return { id:x.id, t:x.t, who:x.who, when:x.when || '', done:!!x.done, src:'app', by:x.by || '', at:x.at || '' };
   }));
+  return plan.concat(TASKS.map(function(x){
+    return { id:x.id, t:x.t, who:x.who, when:x.when || '', due:x.due || null, done:!!x.done, src:'app', tel:x.tel, meta:x.meta,
+      note:x.note, by:x.by || '', at:x.at || '', upd:x.upd || '', updAt:x.updAt || '' };
+  }));
+}
+function taskById(id){ return allTasks().filter(function(x){ return x.id === id; })[0] || null; }
+function taskWire(k){
+  var o = { id:k.id, t:k.t, who:k.who, when:k.when || '', done:!!k.done };
+  ['note', 'meta', 'tel', 'due'].forEach(function(f){ if (k[f]) o[f] = k[f]; });
+  return o;
+}
+/* What the other person changed that this phone has not looked at yet. */
+function taskSeenAt(){ return store.get('runway-tasks-seen-' + CODE) || ''; }
+function taskPings(){
+  if (!ME) return [];
+  var since = taskSeenAt();
+  return allTasks().filter(function(k){ return k.upd && lc(k.upd) !== lc(ME) && k.updAt && k.updAt > since; });
+}
+function markTasksSeen(){
+  var last = TASKS.reduce(function(m, x){ return x.updAt && x.updAt > m ? x.updAt : m; }, taskSeenAt());
+  if (last !== taskSeenAt()){ store.set('runway-tasks-seen-' + CODE, last); render(); }
+}
+/* True when a poll brings a task the other person added or changed. */
+function taskNews(list){
+  var old = {};
+  TASKS.forEach(function(x){ old[x.id] = x.updAt || ''; });
+  return list.some(function(x){ return x.upd && lc(x.upd) !== lc(ME) && (x.updAt || '') !== old[x.id]; });
+}
+function taskActLine(){
+  var p = taskPings().sort(function(a, b){ return a.updAt < b.updAt ? 1 : -1; })[0];
+  if (!p) return '';
+  var verb = p.done ? 'ticked off' : (p.at === p.updAt ? 'added' : 'changed');
+  return '<p class="o-live" role="status"><span class="dot"></span>' + esc(p.upd) + ' ' + verb + ' · ' + esc(p.t) + ' · ' + esc(stamp(p.updAt)) + '</p>';
+}
+/* Done tasks drop to the bottom of their group; the rest keep their order. */
+function taskOrder(list){
+  return list.filter(function(k){ return !k.done; }).concat(list.filter(function(k){ return k.done; }));
+}
+function taskMeterHtml(T){
+  var done = T.filter(function(k){ return k.done; }).length, n = T.length;
+  if (!n) return '';
+  var grew = meterWas !== null && done > meterWas;
+  meterWas = done;
+  var cells = '';
+  for (var i = 0; i < n; i++) cells += '<i class="' + (i < done ? 'on' : '') + (grew && i === done - 1 ? ' fill' : '') + '"></i>';
+  return '<div class="o-meter" role="img" aria-label="' + done + ' of ' + n + ' done">' + cells + '</div>' +
+    '<p class="o-sm">' + done + ' of ' + n + ' done</p>';
 }
 function taskGroupHtml(name, list){
   var left = list.filter(function(k){ return !k.done; }).length;
-  return oGrp(name, list.length ? left + ' of ' + list.length + ' left' : '') + (list.length ? list.map(function(k){
-    var fresh = k.src === 'app' && k.by && k.by !== ME && k.at && Date.now() - Date.parse(k.at) < 3 * 864e5 && !k.done;
-    return '<div class="o-row o-task' + (k.done ? ' done' : '') + '">' +
+  var pings = taskPings().map(function(k){ return k.id; });
+  return oGrp(name, list.length ? left + ' of ' + list.length + ' left' : '') + (list.length ? taskOrder(list).map(function(k){
+    var just = justTicked && justTicked.id === k.id && Date.now() - justTicked.at < 1500;
+    var ping = pings.indexOf(k.id) > -1;
+    return '<div class="o-row o-task' + (k.done ? ' done' : '') + (just ? ' just' : '') + (ping ? ' ping' : '') + '" data-row="' + esc(k.id) + '">' +
       '<button class="o-tick" type="button" data-tick="' + esc(k.id) + '" aria-pressed="' + k.done + '" aria-label="' + esc(k.t) + ' done">' +
         '<span class="o-box' + (k.done ? ' on' : '') + '"></span></button>' +
       '<button class="o-open" type="button" data-topen="' + esc(k.id) + '"><span>' + esc(k.t) + '</span>' +
-        (fresh ? '<span class="new">new</span>' : '') + '<span class="lead"></span>' +
-        '<span class="v' + (k.hard && !k.done ? ' over' : '') + '">' + esc(k.when) + ' ›</span></button></div>';
+        (ping ? '<span class="new">' + esc(k.upd) + '</span>' : '') + '<span class="lead"></span>' +
+        '<span class="v' + (k.due && !k.done ? ' over' : '') + '">' + esc(k.when) + ' ›</span></button></div>';
   }).join('') : '<div class="o-row dim"><span>Nothing yet</span></div>');
+}
+/* Rows that change place slide there instead of jumping (FLIP). */
+function taskRects(){
+  var r = {};
+  Array.prototype.forEach.call(document.querySelectorAll('#s-tasks [data-row]'), function(el){
+    if (el.offsetParent) r[el.dataset.row] = el.getBoundingClientRect().top;
+  });
+  return r;
+}
+function taskSlide(before){
+  if (!before || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+  Array.prototype.forEach.call(document.querySelectorAll('#s-tasks [data-row]'), function(el){
+    var was = before[el.dataset.row];
+    if (was === undefined || !el.offsetParent) return;
+    var dy = was - el.getBoundingClientRect().top;
+    if (Math.abs(dy) < 2 || !el.animate) return;
+    el.animate([{ transform:'translateY(' + dy + 'px)' }, { transform:'none' }], { duration:420, easing:'cubic-bezier(.2,.8,.2,1)' });
+  });
 }
 async function saveTask(task, isNew){
   var before = TASKS.slice();
-  TASKS = TASKS.filter(function(x){ return x.id !== task.id; }).concat([Object.assign({ by: ME || null, at: new Date().toISOString() },
-    before.filter(function(x){ return x.id === task.id; })[0] || {}, task)]);
+  var old = before.filter(function(x){ return x.id === task.id; })[0];
+  var rec = Object.assign({ by: ME || null, at: new Date().toISOString() }, old || {}, taskWire(task));
+  TASKS = old ? before.map(function(x){ return x.id === task.id ? rec : x; }) : before.concat([rec]);
   taskErr = '';
   render(); renderSheet();
   taskBusy++;
   var res = null;
   try {
     res = await fetch(API + '/api/task/' + CODE, { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ by: ME || null, task: { id:task.id, t:task.t, who:task.who, when:task.when || '', done:!!task.done } }) });
+      body: JSON.stringify({ by: ME || null, task: taskWire(task) }) });
   } catch(e){ res = null; }
   taskBusy--;
   if (!res || !res.ok){
     TASKS = before; SFX.no();
     taskErr = isNew ? 'The task did not save. Check the connection and try again.' : 'That change did not save. Try again.';
     render(); renderSheet();
+    return;
   }
+  var out = await res.json().catch(function(){ return null; });
+  if (out && out.task) TASKS = TASKS.map(function(x){ return x.id === out.task.id ? out.task : x; });
 }
 async function deleteTask(id){
   var before = TASKS.slice();
   TASKS = TASKS.filter(function(x){ return x.id !== id; });
   SFX.erase();
-  closeSheet(); render();
+  closeSheet();
+  render();
   taskBusy++;
   var res = null;
   try { res = await fetch(API + '/api/task/' + CODE + '/' + id, { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ by: ME || null }) }); }
@@ -3053,23 +3163,36 @@ async function deleteTask(id){
   if (!res || !res.ok){ TASKS = before; SFX.no(); taskErr = 'The task was not deleted. Try again.'; render(); }
 }
 function tickTask(id){
-  var k = allTasks().filter(function(x){ return x.id === id; })[0];
+  var k = taskById(id);
   if (!k) return;
   if (k.done) SFX.key(); else SFX.tick();
+  justTicked = k.done ? null : { id:id, at:Date.now() };
   if (k.src === 'plan'){
     if (k.done) delete S.tasks[id]; else S.tasks[id] = true;
     push(); render(); renderSheet();
     return;
   }
-  var x = TASKS.filter(function(t){ return t.id === id; })[0];
-  saveTask(Object.assign({}, x, { done: !k.done }));
+  saveTask(Object.assign({}, k, { done: !k.done }));
+}
+function editTask(id){
+  var k = taskById(id);
+  if (!k || k.src !== 'app') return;
+  addDraft = { id:k.id, t:k.t, who:k.who, when:k.when, note:k.note || '', custom:k.when, due:k.due || null };
+  openSheet('addtask');
 }
 function addTask(){
   var t = String(addDraft.t || '').trim();
   if (!t){ SFX.no(); $('tk-err').textContent = 'Say what the task is.'; $('tk-t').focus(); return; }
   SFX.ok();
   closeSheet();
-  saveTask({ id: newId(), t: t, who: addDraft.who, when: addDraft.when, done: false }, true);
+  if (addDraft.id){
+    var k = taskById(addDraft.id);
+    if (!k) return;
+    /* A date only means something while the label that came with it stays. */
+    return saveTask(Object.assign({}, k, { t:t, who:addDraft.who, when:addDraft.when, note:String(addDraft.note || '').trim(),
+      due: addDraft.when === addDraft.custom ? addDraft.due : null }));
+  }
+  saveTask({ id: newId(), t: t, who: addDraft.who, when: addDraft.when, note: String(addDraft.note || '').trim(), done: false }, true);
 }
 
 /* ─────────────────────────── MOTHER ───────────────────────────
@@ -3671,12 +3794,13 @@ document.addEventListener('click', function(e){
     if (d.disconnect) return disconnectBank(d.disconnect);
     return;
   }
-  var tk = e.target.closest('[data-tick],[data-topen],[data-tdel],[data-twho],[data-twhen]');
+  var tk = e.target.closest('[data-tick],[data-topen],[data-tedit],[data-tdel],[data-twho],[data-twhen]');
   if (tk){
     e.preventDefault();
     var td = tk.dataset;
     if (td.tick) return tickTask(td.tick);
     if (td.topen){ taskDraft = { id: td.topen }; return openSheet('task'); }
+    if (td.tedit) return editTask(td.tedit);
     if (td.tdel) return deleteTask(td.tdel);
     if (td.twho !== undefined){ addDraft.who = td.twho; return renderSheet(); }
     if (td.twhen !== undefined){ addDraft.when = td.twhen; return renderSheet(); }
@@ -3821,6 +3945,7 @@ document.addEventListener('input', function(e){
   var el = e.target;
   if (el.id === 'pay-q'){ payFilter.q = el.value; $('p-rows').innerHTML = paymentRowsHtml(); }
   if (el.id === 'tk-t' && addDraft){ addDraft.t = el.value; var te = $('tk-err'); if (te) te.textContent = ''; }
+  if (el.id === 'tk-note' && addDraft) addDraft.note = el.value;
   if (el.id === 'bank-q'){
     bankQuery = el.value;
     var q = normText(bankQuery).join(' ');
@@ -3868,6 +3993,9 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('mess
 });
 window.addEventListener('resize', function(){ if (PLAN) render(); });
 document.addEventListener('visibilitychange', function(){ if (!document.hidden) poll(); });
+/* A Home Screen app coming back can skip visibilitychange; these catch it. */
+window.addEventListener('pageshow', function(e){ if (e.persisted && PLAN) poll(); });
+window.addEventListener('focus', function(){ if (PLAN) poll(); });
 
 /* ─────────────────────────── start ─────────────────────────── */
 
@@ -3916,7 +4044,7 @@ async function start(){
 
   var cached = store.get(cacheKey());
   if (cached && cached.plan){
-    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends, manual:cached.manual, tasks:cached.tasks, asks:cached.asks });
+    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends, manual:cached.manual, tasks:cached.tasks, asks:cached.asks, sig:cached.sig });
     $('boot').hidden = true; $('app').hidden = false;
     go(location.hash.slice(1) || 'today', false);
   }
