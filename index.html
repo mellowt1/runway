@@ -573,6 +573,11 @@ details p{font:400 21px/1.2 var(--serif)}
 .o-task.done{color:var(--muted)}
 .o-task.done .o-open > span:first-child{text-decoration:line-through}
 .o-row .del{align-self:center}
+.o-sync{display:inline-flex;align-items:center;gap:7px;min-height:32px;margin-top:6px;padding:0;border:0;background:none;
+  font:400 12px var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.o-sync .dot{width:7px;height:7px;background:var(--ink);box-shadow:0 0 5px var(--glow)}
+.o-sync.stale{color:var(--over)}
+.o-sync.stale .dot{background:var(--over);box-shadow:none}
 /* Tasks: a block meter for what is done, a live line for the other side's last change */
 .o-meter{display:flex;gap:4px;height:14px;margin-top:14px}
 .o-meter i{flex:1;border:1px solid var(--rule)}
@@ -1921,7 +1926,7 @@ var SFX = (function(){
   function stopHum(){ if (hum){ try { hum.stop(); } catch(e){} hum = null; } }
   document.addEventListener('visibilitychange', function(){
     if (!ctx) return;
-    if (document.hidden) ctx.suspend(); else if (on) ctx.resume();
+    if (document.hidden) ctx.suspend(); else if (on) resume();
   });
   function wake(){
     if (!on || !armed) return null;   // before the first tap a sound would only queue up
@@ -1935,10 +1940,30 @@ var SFX = (function(){
       out.connect(lp); lp.connect(ctx.destination);
       clipOut = ctx.createGain(); clipOut.connect(ctx.destination);
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state !== 'running') resume();
     load();
     return ctx;
   }
+  /* iPhone: after the app has been in the background the context can be
+     'interrupted' rather than suspended, and only a tap brings it back. If a tap
+     can't, a fresh context takes over (the decoded sprite works in either). */
+  function resume(){
+    var p = null;
+    try { p = ctx.resume(); } catch(e){}
+    if (p && p.catch) p.catch(function(){});
+  }
+  function unlock(){
+    if (!ctx || !on || !armed || ctx.state === 'running') return;
+    var was = ctx;
+    resume();
+    setTimeout(function(){
+      if (ctx !== was || ctx.state === 'running' || document.hidden) return;
+      try { ctx.close(); } catch(e){}
+      ctx = null; hum = null;
+      if (wake()) startHum(0);
+    }, 400);
+  }
+  ['touchend', 'click', 'keydown'].forEach(function(t){ document.addEventListener(t, unlock, true); });
   function tone(type, freq, t, dur, vol){
     var o = ctx.createOscillator(), g = ctx.createGain();
     o.type = type; o.frequency.setValueAtTime(freq, t);
@@ -2078,9 +2103,13 @@ var SFX = (function(){
     chatter(0.8);
   }
   /* A change from the other person arrives as four beeps. */
+  var lastIn = 0;
   function incoming(){
-    if (!wake() || clip('incoming')) return;
-    ok();
+    if (Date.now() - lastIn < 1500) return true;
+    if (!wake()) return false;
+    lastIn = Date.now();
+    if (!clip('incoming')) ok();
+    return true;
   }
   /* The warning tone, once a day, while a month is below zero. Before the
      first tap it waits and sounds right after the boot. */
@@ -2936,7 +2965,7 @@ function todayHeroHtml(e){
   var days = e.daysLeft > 0 ? e.daysLeft + (e.daysLeft === 1 ? ' day' : ' days') : 'month over';
   var perDay = left > 0 && e.daysLeft > 0 ? fmtAmt(cents(left / e.daysLeft)) + ' a day · ' : '';
   return oHero((over ? 'Over · ' : e.pockets ? 'In the pockets · ' : 'Left to spend · ') + e.label, fmtAmt(Math.abs(left)), perDay + days, over) +
-    statusHtml();
+    (e.pockets ? pocketSyncHtml() : '') + statusHtml();
 }
 /* One amber row while a month is short (or a note is waiting); the fixes are in its sheet. */
 function actRowHtml(fx){
@@ -3022,6 +3051,25 @@ function spendRowsHtml(e){
       (bits.length ? '<span class="o-sm">' + esc(bits.join(' · ')) + '</span>' : '') + '</div>';
   });
   return html;
+}
+/* When the pockets last came in from the bank: the oldest of the linked pocket
+   accounts, so one that failed to sync shows. Amber once it is over ten hours old
+   (the Worker syncs four times a day). */
+function pocketSync(){
+  if (!hasPockets()) return null;
+  var ts = PLAN.flex.map(function(f){ var a = pocketAcct(f.id); return a && a.a.synced; }).filter(Boolean).sort();
+  var at = ts[0] || (BANK && BANK.synced);
+  if (!at) return null;
+  var dt = new Date(at), d = ymd(dt), hm = pad2(dt.getHours()) + ':' + pad2(dt.getMinutes());
+  var y = new Date(); y.setDate(y.getDate() - 1);
+  return { text: d === todayStr() ? hm : d === ymd(y) ? 'yesterday ' + hm : shortDate(d), stale: Date.now() - dt.getTime() > 10 * 3600e3 };
+}
+function pocketSyncHtml(){
+  var p = pocketSync();
+  if (!p) return '';
+  var body = '<span class="dot"></span>Pockets synced ' + esc(p.text);
+  return bankKey ? '<button class="o-sync' + (p.stale ? ' stale' : '') + '" type="button" data-act="sync" aria-label="Pockets synced ' + esc(p.text) + '. Sync now">' + body + ' · ⟳</button>'
+    : '<p class="o-sync' + (p.stale ? ' stale' : '') + '">' + body + '</p>';
 }
 function syncedAt(){
   if (!BANK || !BANK.synced) return 'sync';
@@ -3367,7 +3415,13 @@ function playAnswer(x){
   scr.innerHTML = '<span class="dim">MU/TH/UR 6000</span>\n<span class="dim">Interface 2037</span>\n\nIncoming transmission<span class="mo-cur"></span>';
   grid.hidden = true;
   btn.textContent = '[ Receive ]'; btn.hidden = false;
-  btn.onclick = function(){ btn.hidden = true; run(); };
+  var rang = SFX.incoming();
+  btn.onclick = function(){
+    btn.hidden = true;
+    if (rang) return run();
+    SFX.incoming();
+    setTimeout(function(){ if (my === moJob) run(); }, 900);
+  };
   box.onclick = function(e){ if (btn.hidden && e.target !== btn) skip = true; };
   box.hidden = false;
   document.body.style.overflow = 'hidden';
@@ -3586,7 +3640,7 @@ function bankScreenHtml(){
   var tot = function(list){ return fmt(cents(list.reduce(function(t, x){ return t + (Number(x.bal) || 0); }, 0)), true); };
   var bal = function(v){ return v === null || v === undefined ? '—' : fmt(v, true); };
   if (pockets.length) html += oGrp('Pockets · ' + pockets.map(function(p){ return p.bank; }).filter(function(b, i, l){ return l.indexOf(b) === i; }).join(' + '), tot(pockets)) +
-    pockets.map(function(p){ return oRow(p.name, bal(p.bal)); }).join('');
+    pockets.map(function(p){ return oRow(p.name, bal(p.bal)); }).join('') + pocketSyncHtml();
   if (current.length) html += oGrp('Current', tot(current)) + current.map(function(p){ return oRow(p.name, bal(p.bal)); }).join('');
   html += savings;
   if (other.length) html += oGrp('Not counted') + other.map(function(p){ return oRow(p.name, p.v, '', 'dim'); }).join('');
@@ -3920,8 +3974,9 @@ $('sheet').addEventListener('keydown', function(e){
 });
 $('sheet').addEventListener('input', function(e){
   var el = e.target;
-  if (el.id === 'mo-q'){ askDraft = { q: el.value }; return; }
-  if (el.id === 'mo-a'){ askDraft = { id: inqId, a: el.value }; return; }
+  /* Typing on MOTHER's terminal sounds its keys; a phone keyboard sends no pointerdown. */
+  if (el.id === 'mo-q'){ SFX.key(); askDraft = { q: el.value }; return; }
+  if (el.id === 'mo-a'){ SFX.key(); askDraft = { id: inqId, a: el.value }; return; }
   if (el.id === 'lg-amt') return updateLogHint();
   if (el.type !== 'range') return;
   draft[el.dataset.k] = Number(el.value);
