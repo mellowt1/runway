@@ -1025,7 +1025,7 @@ function restOfMonth(i, st, subsT){
    names no item pays that bucket's items instead. */
 function stillToCome(i, st, list){
   var key = PLAN.months[i].key, plan = [];
-  function add(x, b, amount){ plan.push({ b:b, left:amount, terms: itemTerms(x) }); }
+  function add(x, b, amount){ plan.push({ b:b, left:amount, terms: itemTerms(x), name: x.name || 'Gemeente' }); }
   /* Order matters when one payee pays two items: a named one-off (the October Amex
      bill) first, the monthly items next, the gemeente's lump sum after its monthly part. */
   (PLAN.oneOffs || []).forEach(function(o){ if (o.month === key && o.amount < 0) add(o, 'oneoff', -o.amount); });
@@ -1048,9 +1048,21 @@ function stillToCome(i, st, list){
   });
   var out = { bills:0, debt:0, oneoff:0 };
   plan.forEach(function(x){ out[x.b] += Math.max(0, x.left); });
-  return { bills: cents(out.bills), debt: cents(out.debt), oneoff: cents(out.oneoff) };
+  return { bills: cents(out.bills), debt: cents(out.debt), oneoff: cents(out.oneoff),
+    items: plan.filter(function(x){ return x.left > 0.004; }).map(function(x){ return { name: x.name, left: cents(x.left) }; }) };
 }
 
+/* The current month, line by line: what the forecast still takes off today's money.
+   A bill the bank already shows as paid is not on it. */
+function restHtml(i){
+  var e = envelope(i, S), left = stillToCome(i, S, bankIn(i));
+  var everyday = cents(Math.max(0, e.budget - e.spent));
+  var rows = (everyday ? [{ name: 'Everyday, rest of the month', left: everyday }] : []).concat(left.items);
+  var total = rows.reduce(function(t, r){ return t + r.left; }, 0);
+  return oGrp(PLAN.months[i].label + ' · still to go out', fmt(total)) +
+    rows.map(function(r){ return oRow(r.name, fmt(r.left)); }).join('') +
+    '<p class="o-foot">A bill paid already that is still listed here: tap it under Payments and put it in Bills or Debt payments.</p>';
+}
 function model(st){
   var subsT = sum(keptSubs(st));
   var monthly = sum(PLAN.fixed) + sum(PLAN.loans) + subsT + flexTotal(st);
@@ -2239,7 +2251,7 @@ function renderSheet(){
       '<p class="o-note">' + (A ? 'Starts from the ' + esc(fmt(A.bal)) + ' you have today' + (manualAccounts().length ? ', savings included' : '') + '. ' : '') +
       'Counts ' + esc(fmt(flexTotal(S))) + ' a month for ' + esc(flexWords()) + '. ' + esc(FORECAST_SPEND_RULE) + '</p>' +
       (hb ? '<p class="o-note">' + esc(PLAN.bridge.by) + '’s ' + esc(fmt(hb.bridged)) + ' is in these figures; paying it back is not.</p>' : '') +
-      '<p class="o-note">A month still below zero is not covered.</p>';
+      '<p class="o-note">A month still below zero is not covered.</p>' + (A ? restHtml(A.ci) : '');
   }
 
   else if (sheetKind === 'bankmanage'){
