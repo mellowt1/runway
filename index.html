@@ -137,6 +137,9 @@ button.row:hover b{font-style:italic}
 .fc-r .track{position:relative;height:10px;margin:0 10px}
 .fc-r .track i{position:absolute;top:0;height:10px;background:var(--ink)}
 .fc-r.neg .track i{background:var(--over)}
+.fc-r .v .tk{display:block;font:400 14px/1 var(--serif);color:var(--over)}
+.tk-on{color:var(--ink)}
+.tk-on::before{content:"■ "}
 .fc-r .track u{position:absolute;top:-8px;bottom:-8px;width:1px;background:var(--rule)}
 .notes{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
 .notes div{display:flex;flex-direction:column;gap:4px}
@@ -1067,7 +1070,32 @@ function restHtml(i){
    from forecast.start (the money at the end of month 0) through the plan's months,
    moved only by the sliders; the bank and the entries never change it. */
 function planOnly(){ return !!(PLAN.forecast && PLAN.forecast.mode === 'plan'); }
-function model(st){
+/* Plan against what is happening: the difference by the last month, and month by
+   month what made it. Small differences (under €25) count as on track. */
+function onTrack(){
+  if (!planOnly()) return null;
+  var plan = model(S), real = model(S, true), why = [];
+  real.M.forEach(function(m){
+    m.items.forEach(function(it){
+      if (it.name === 'Over budget') why.push({ key:m.key, label:m.label, name:'Everyday spending over the budget', amount:it.amount });
+      else if (it.name === 'One-offs') why.push({ key:m.key, label:m.label, name:'Payments the plan has no line for', amount:it.amount });
+      else if (it.name === 'Money in') why.push({ key:m.key, label:m.label, name:'Money in', amount:it.amount });
+    });
+  });
+  var gap = cents(real.end - plan.end);
+  return { plan:plan, real:real, gap:gap, why:why, state: gap <= -25 ? 'behind' : gap >= 25 ? 'ahead' : 'on' };
+}
+function trackLineHtml(tk){
+  if (!tk) return '';
+  if (tk.state === 'on') return '<p class="o-line tk-on">On track with the plan</p>';
+  if (tk.state === 'ahead') return '<button class="o-row" type="button" data-sheet="track"><span>' + esc(fmt(tk.gap)) + ' ahead of the plan</span><span class="lead"></span><span class="v">Why ›</span></button>';
+  return oAmb(fmt(-tk.gap) + ' behind the plan', 'data-sheet="track"');
+}
+/* track: the agreed plan plus what has really happened so far: spending over the
+   everyday budgets, payments the plan has no line for, money in. Spending less than
+   the budgets does not move it, and nor do bills (a bill the bank cannot match must
+   never make him look behind). Only used with planOnly(). */
+function model(st, track){
   var subsT = sum(keptSubs(st));
   var monthly = sum(PLAN.fixed) + sum(PLAN.loans) + subsT + flexTotal(st);
   var PM = planOnly();
@@ -1092,16 +1120,16 @@ function model(st){
       if (spentNow) items.push({ name:'Spending', amount: -spentNow });
     }
     /* Bank one-offs beyond the ones the plan already takes off this month. */
-    var off = PM ? 0 : cents(Math.max(0, oneOffsIn(i) - plannedOneOffsOut(i, st)));
+    var off = PM && !track ? 0 : cents(Math.max(0, oneOffsIn(i) - plannedOneOffsOut(i, st)));
     if (off) items.push({ name:'One-offs', amount: -off });
-    var cameIn = PM ? 0 : envelope(i, st).income;
+    var cameIn = PM && !track ? 0 : envelope(i, st).income;
     if (cameIn) items.push({ name:'Money in', amount: cameIn });
     if (i > 0){
       if (m.key === PLAN.salary.from || afterKey(m.key, PLAN.salary.from)) {
         items.push({ name:'Salary', amount: Number(st.salary)||0 });
       }
       items.push({ name:'Monthly budget', amount: -monthly });
-      var over = PM ? 0 : overBudget(i, st);
+      var over = PM && !track ? 0 : overBudget(i, st);
       if (over) items.push({ name:'Over budget', amount: -over });
       (PLAN.oneOffs||[]).forEach(function(o){
         if (o.month === m.key) items.push({ name:o.name, amount:o.amount });
@@ -1741,7 +1769,9 @@ function paceOf(e){
 
 
 /* End-of-month balances as bars from one axis, one scale for both sides. */
-function forecastBarsHtml(M){
+function forecastBarsHtml(M, R){
+  var real = {};
+  (R || []).forEach(function(m){ real[m.key] = m.bal; });
   var pos = 0, neg = 0;
   M.forEach(function(m){ if (m.bal > pos) pos = m.bal; if (-m.bal > neg) neg = -m.bal; });
   var span = pos + neg || 1, axis = neg / span * 100;
@@ -1749,7 +1779,8 @@ function forecastBarsHtml(M){
     var w = Math.abs(m.bal) / span * 100, left = m.bal < 0 ? axis - w : axis;
     return '<div class="fc-r' + (m.bal < 0 ? ' neg' : '') + '"><span class="m">' + esc(m.key) + '</span>' +
       '<span class="track"><u style="left:' + axis.toFixed(2) + '%"></u><i style="left:' + left.toFixed(2) +
-      '%;width:' + Math.max(0.6, w).toFixed(2) + '%"></i></span><span class="v">' + esc(fmt(m.bal)) + '</span></div>';
+      '%;width:' + Math.max(0.6, w).toFixed(2) + '%"></i></span><span class="v">' + esc(fmt(m.bal)) +
+      (m.key in real && Math.abs(real[m.key] - m.bal) >= 25 ? '<span class="tk">' + esc(fmt(real[m.key])) + '</span>' : '') + '</span></div>';
   }).join('') + '</div>';
 }
 
@@ -2261,6 +2292,23 @@ function renderSheet(){
       (planOnly() && PLAN.forecast.note ? '<p class="o-note">' + esc(PLAN.forecast.note) + '</p>' : '') + (A && !planOnly() ? restHtml(A.ci) : '');
   }
 
+  else if (sheetKind === 'track'){
+    var tq = onTrack();
+    html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">Plan and real</h2><span></span></div>';
+    if (!tq) html += '<p class="o-note">The forecast follows the bank, so there is no separate plan to compare with.</p>';
+    else {
+      html += '<p class="o-note">' + (tq.state === 'on' ? 'On track with the plan.' : esc(fmt(Math.abs(tq.gap))) + (tq.gap < 0 ? ' behind' : ' ahead of') + ' the plan by ' + esc(PLAN.months[PLAN.months.length - 1].label) + '.') + '</p>' +
+        (tq.why.length ? oGrp('What made the difference') + tq.why.map(function(w){
+          return oRow(w.label + ' · ' + w.name, (w.amount > 0 ? '+' : '−') + fmt(Math.abs(w.amount)), '', w.amount < 0 ? 'over' : '');
+        }).join('') : '') +
+        oGrp('End of each month', 'plan · now') + tq.plan.M.map(function(m, i){
+          var r = tq.real.M[i] ? tq.real.M[i].bal : m.bal;
+          return oRow(m.label, fmt(m.bal) + ' · ' + fmt(r), '', r - m.bal <= -25 ? 'over' : '');
+        }).join('') +
+        '<p class="o-foot">Spending less than the budget does not move these figures. Bills are counted as the plan has them.</p>';
+    }
+  }
+
   else if (sheetKind === 'bankmanage'){
     html = bankManageHtml();
   }
@@ -2688,9 +2736,12 @@ function render(){
 
   /* Forecast */
   var below = d ? cur.M.slice(d.lo, d.hi + 1).filter(function(m){ return m.bal < 0; }).map(function(m){ return m.key; }) : [];
+  var tk = onTrack();
   $('f-hero').innerHTML = oHero('Left · end of ' + lastLabel, fmt(cur.end), 'A month costs ' + fmt(cur.monthly)) +
+    trackLineHtml(tk) +
     (below.length ? oAmb(below.join(' + ') + ' below zero', 'data-sheet="fix"') : '');
-  $('f-chart').innerHTML = oGrp('End of each month') + forecastBarsHtml(cur.M);
+  $('f-chart').innerHTML = oGrp(tk ? 'Month end · the plan' : 'End of each month', tk && tk.state !== 'on' ? 'Now' : '') +
+    forecastBarsHtml(cur.M, tk && tk.state !== 'on' ? tk.real.M : null);
   var salaryFrom = monthLabel(PLAN.salary.from);
   $('f-grid').innerHTML = oGrp('What changes') +
     (br ? oRow(br.key + ' · ' + PLAN.bridge.by + ' bridges', '+' + fmt(br.bridged)) : '') +
