@@ -1,6 +1,6 @@
 # Runway
 
-A phone-first page for one person: what is left this month, where the money goes over the months ahead, and the calls still to make. One person moves the sliders; the other sees the result on their own phone within a few seconds.
+A phone-first page for one person: what is left this month, the forecast for the months ahead, their bank synced through Enable Banking, the tasks still to do, and MOTHER, a terminal where one of the two asks a question and the other answers. One person moves the sliders; the other sees the result on their own phone within a few seconds.
 
 **No figures live in this repo.** The app ships empty and loads everything from the Worker using the code in the link, so the repo can be public without showing anyone's balance, salary or debts.
 

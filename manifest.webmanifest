@@ -1,6 +1,7 @@
 {
   "name": "Runway",
   "short_name": "Runway",
+  "description": "What is left this month, the forecast, the bank, the tasks, and questions for MOTHER.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
