@@ -18,6 +18,8 @@
  *   tasks   every to-do, each for one of them, with its tick. The plan's own tasks
  *           are copied in on first read; from then on either person edits them here.
  *   asks    questions for MOTHER: one person asks, the other answers.
+ *   recalc  the month-end recalculation: as a month closes MOTHER asks the reader how
+ *           it went, one record per month. A note in it becomes a question in asks.
  *
  * Anyone with the code can read all of them and write state, spends, manual and tasks. That is the
  * point: one person sends the other a link, the other moves a slider, and the next
@@ -35,6 +37,7 @@
  *   POST   /api/ask/:code          <- { by, ask: {id, q} } -> { ok, ask, rev }     a new question
  *   POST   /api/ask/:code/:id      <- { by, a }           -> { ok, ask, rev }      its answer
  *   DELETE /api/ask/:code/:id      <- { by }              -> { ok, removed, rev }
+ *   POST   /api/recalc/:code       <- { by, month, recalc } -> { ok, recalc, ask, rev }
  *
  * A task added for someone sends an alert to every phone but the adder's. A question
  * goes to every phone but the asker's; an answer goes to the asker's phones only, and
@@ -69,6 +72,8 @@ const MANUAL_ID = /^[a-z0-9_-]{1,24}$/;
 const MAX_MANUAL = 12;
 const MAX_TASKS = 100;
 const MAX_ASKS = 150;
+const RECALC_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+const FEELS = ['good', 'okay', 'tight', 'rough'];
 
 function cors(request) {
   const o = request.headers.get('Origin') || '';
@@ -166,6 +171,7 @@ async function handlePlan(request, env, code) {
     const md = (await readDoc(env, `manual:${code}`)) || {};
     const tk = await loadTasks(env, code, plan);
     const ak = (await readDoc(env, `asks:${code}`)) || {};
+    const rc = (await readDoc(env, `recalc:${code}`)) || {};
     const bank = await bankSummary(env, code);
     return json(
       {
@@ -173,13 +179,14 @@ async function handlePlan(request, env, code) {
         state: st.state || null,
         updated: st.updated || null,
         by: st.by || null,
-        rev: (st.rev || 0) + (sp.rev || 0) + (md.rev || 0) + (tk.rev || 0) + (ak.rev || 0),
+        rev: (st.rev || 0) + (sp.rev || 0) + (md.rev || 0) + (tk.rev || 0) + (ak.rev || 0) + (rc.rev || 0),
         // One rev per document: two different changes can add up to the same sum.
-        sig: [st.rev || 0, sp.rev || 0, md.rev || 0, tk.rev || 0, ak.rev || 0].join('.'),
+        sig: [st.rev || 0, sp.rev || 0, md.rev || 0, tk.rev || 0, ak.rev || 0, rc.rev || 0].join('.'),
         spends: Array.isArray(sp.list) ? sp.list : [],
         manual: md.set || {},
         tasks: Array.isArray(tk.list) ? tk.list : [],
         asks: Array.isArray(ak.list) ? ak.list : [],
+        recalc: rc.m || {},
         bank,
       },
       request
@@ -426,6 +433,24 @@ function cleanLines(v, n) {
     .trim();
 }
 
+// A new question at the end of the list; when full, the oldest answered one goes
+// first, then the oldest of all. An id already on file is left as it is.
+async function addAsk(env, code, by, id, q) {
+  const key = `asks:${code}`;
+  const prev = (await readDoc(env, key)) || {};
+  const list = Array.isArray(prev.list) ? prev.list : [];
+  const old = list.find((x) => x && x.id === id);
+  if (old) return { ask: old, rev: prev.rev || 0 };
+  const next = list.concat([{ id, q, by, at: new Date().toISOString() }]);
+  while (next.length > MAX_ASKS) {
+    const i = next.findIndex((x) => x.a);
+    next.splice(i > -1 ? i : 0, 1);
+  }
+  const rev = (prev.rev || 0) + 1;
+  await env.RUNWAY_KV.put(key, JSON.stringify({ list: next, rev }), { expirationTtl: TTL });
+  return { ask: next[next.length - 1], rev };
+}
+
 // Questions for MOTHER, their own document like tasks. Anyone with the code may ask;
 // only someone other than the asker may answer.
 async function handleAsk(request, env, code, id) {
@@ -446,14 +471,7 @@ async function handleAsk(request, env, code, id) {
     if (!SPEND_ID.test(aid) || !q || !by) return json({ error: 'ask required: by, id, q' }, request, 400);
     const old = list.find((x) => x && x.id === aid);
     if (old) return json({ ok: true, ask: old, rev: prev.rev || 0 }, request);
-    let next = list.concat([{ id: aid, q, by, at: new Date().toISOString() }]);
-    // Full: the oldest answered question goes first, then the oldest of all.
-    while (next.length > MAX_ASKS) {
-      const i = next.findIndex((x) => x.a);
-      next.splice(i > -1 ? i : 0, 1);
-    }
-    const ask = next[next.length - 1];
-    const rev = await save(next);
+    const { ask, rev } = await addAsk(env, code, by, aid, q);
     const alerted = await notify(env, code,
       { title: 'MOTHER', body: `${by} asks: ${q}`.replace(/\s+/g, ' ').slice(0, 180), url: './#mother' }, null, by);
     return json({ ok: true, ask, rev, alerted }, request);
@@ -482,6 +500,105 @@ async function handleAsk(request, env, code, id) {
   }
 
   return json({ error: 'method' }, request, 405);
+}
+
+function monthName(month) {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' });
+}
+
+// The month-end recalculation, one record per month ("YYYY-MM"). The reader answers
+// what they like: how the month went, the savings balance, the everyday budgets for
+// the next month (`was` is what they were before), a note. Or lets the month go. A
+// finished record stays; a skipped month can still be finished. A note goes to MOTHER
+// as a question (the page sends its id), so the answer comes back the usual way.
+async function handleRecalc(request, env, code) {
+  if (request.method !== 'POST') return json({ error: 'method' }, request, 405);
+  const key = `recalc:${code}`;
+  const body = await request.json().catch(() => null);
+  const by = cleanBy(body && body.by);
+  const month = String((body && body.month) || '');
+  if (!by || !RECALC_MONTH.test(month)) return json({ error: 'recalc required: by, month' }, request, 400);
+  const plan = await readDoc(env, `plan:${code}`);
+  if (!plan) return json({ error: 'no plan for this code' }, request, 404);
+  const r = (body && body.recalc) || {};
+  const rec = { by, at: new Date().toISOString() };
+  if (r.skip) rec.skip = true;
+  else {
+    if (FEELS.includes(r.feel)) rec.feel = r.feel;
+    const save = Math.round(Number(r.save) * 100) / 100;
+    if (r.save !== null && r.save !== undefined && Number.isFinite(save) && save >= 0 && save < 1e7) rec.save = save;
+    for (const k of ['flex', 'was']) {
+      const out = {};
+      for (const f of Array.isArray(plan.flex) ? plan.flex : []) {
+        const raw = r[k] && r[k][f.id];
+        const v = Number(raw);
+        if (raw !== undefined && raw !== null && Number.isFinite(v) && v >= 0 && v < 1e5) out[f.id] = v;
+      }
+      if (Object.keys(out).length) rec[k] = out;
+    }
+    const note = cleanLines(r.note, 240);
+    if (note) rec.note = note;
+  }
+  const prev = (await readDoc(env, key)) || {};
+  const m = Object.assign({}, prev.m || {});
+  const old = m[month];
+  if (old && !(old.skip && !rec.skip)) return json({ ok: true, recalc: old, rev: prev.rev || 0 }, request);
+  let ask = null;
+  if (rec.note && SPEND_ID.test(String(r.ask || ''))) {
+    ask = (await addAsk(env, code, by, String(r.ask), rec.note)).ask;
+    rec.ask = ask.id;
+  }
+  m[month] = rec;
+  const out = { m, pinged: prev.pinged || {}, rev: (prev.rev || 0) + 1 };
+  await env.RUNWAY_KV.put(key, JSON.stringify(out), { expirationTtl: TTL });
+  let alerted = null;
+  if (!rec.skip) {
+    const feel = rec.feel ? `: ${rec.feel}` : '';
+    const tail = rec.note ? `. ${by} asks: ${rec.note}` : '.';
+    alerted = await notify(env, code,
+      { title: 'MOTHER', body: `${by} finished the ${monthName(month)} recalculation${feel}${tail}`.replace(/\s+/g, ' ').slice(0, 180), url: './#mother' },
+      null, by);
+  }
+  return json({ ok: true, recalc: rec, ask, rev: out.rev, alerted }, request);
+}
+
+// On a month's last day (Amsterdam), from 16:00, MOTHER asks the reader once by alert.
+// The phone asks too, whenever it is opened; this reaches a phone left closed.
+export async function recalcPing(env, now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+  }).formatToParts(now).map((p) => [p.type, p.value]));
+  const y = Number(parts.year), mo = Number(parts.month), d = Number(parts.day);
+  if (Number(parts.hour) < 16 || new Date(Date.UTC(y, mo - 1, d + 1)).getUTCMonth() === mo - 1) return 0;
+  const month = `${y}-${String(mo).padStart(2, '0')}`;
+  let sent = 0, cursor;
+  do {
+    const page = await env.RUNWAY_KV.list({ prefix: 'plan:', cursor });
+    for (const k of page.keys) {
+      const code = k.name.slice(5);
+      try {
+        const plan = await readDoc(env, k.name);
+        const owner = plan && plan.people && plan.people.owner;
+        if (!owner || !plan.asOf || !Array.isArray(plan.months)) continue;
+        const [ay, am] = String(plan.asOf).split('-').map(Number);
+        const i = (y - ay) * 12 + (mo - am);
+        if (i < 0 || i >= plan.months.length) continue;
+        const doc = (await readDoc(env, `recalc:${code}`)) || {};
+        if ((doc.m && doc.m[month]) || (doc.pinged && doc.pinged[month])) continue;
+        await notify(env, code, { title: 'MOTHER',
+          body: `${plan.months[i].label} is closing. We require a recalculation. What do you think?`, url: './#today' }, owner, null);
+        // Not something anyone sees, so no rev bump.
+        const pinged = Object.assign({}, doc.pinged, { [month]: true });
+        await env.RUNWAY_KV.put(`recalc:${code}`, JSON.stringify(Object.assign({}, doc, { pinged })), { expirationTtl: TTL });
+        sent++;
+      } catch (e) {
+        console.log('recalc ping failed', code, e && e.message);
+      }
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  return sent;
 }
 
 export default {
@@ -526,6 +643,13 @@ export default {
       return handleAsk(request, env, code, ak[2] ? ak[2].toLowerCase() : null);
     }
 
+    const rcm = url.pathname.match(/^\/api\/recalc\/([a-z0-9]+)$/i);
+    if (rcm) {
+      const code = rcm[1].toLowerCase();
+      if (!CODE.test(code)) return json({ error: 'bad code' }, request, 400);
+      return handleRecalc(request, env, code);
+    }
+
     const mn = url.pathname.match(/^\/api\/manual\/([a-z0-9]+)$/i);
     if (mn) {
       const code = mn[1].toLowerCase();
@@ -547,5 +671,6 @@ export default {
   // Four times a day: the most banks allow for reads without the person present.
   async scheduled(event, env, ctx) {
     ctx.waitUntil(syncAll(env));
+    ctx.waitUntil(recalcPing(env));
   },
 };

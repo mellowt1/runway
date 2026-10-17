@@ -635,6 +635,15 @@ details p{font:400 21px/1.2 var(--serif)}
 .mo-go{flex:none;width:100%;min-height:56px;margin-top:auto}
 .mo-go[hidden]{display:none}
 .mo-scr + .mo-grid + .mo-go{margin-top:auto}
+.mo-later{flex:none;width:100%;min-height:48px;margin-top:10px;border:0;background:none;color:var(--muted);font:400 22px var(--serif);text-transform:uppercase}
+.mo-later[hidden]{display:none}
+
+/* The month-end recalculation: one question at a time */
+.rc-q{font:400 30px/1.12 var(--serif);text-transform:uppercase;margin:6px 0 4px}
+.rc-step{display:grid;grid-template-columns:1fr auto auto auto;align-items:center;gap:10px;padding:10px 0;border-bottom:2px dashed var(--rule)}
+.rc-step .v{font:400 28px var(--serif);min-width:4.2em;text-align:center}
+.rc-step .o-key{min-width:44px;font-size:24px;padding:0}
+.rc-step .o-sm{grid-column:1 / -1;margin-top:-6px}
 </style>
 </head>
 <body>
@@ -758,6 +767,7 @@ details p{font:400 21px/1.2 var(--serif)}
   <div class="mo-scr" id="mo-scr" aria-live="polite"></div>
   <div class="mo-grid" id="mo-grid" aria-hidden="true" hidden></div>
   <button class="o-key mo-go" id="mo-go" type="button"></button>
+  <button class="mo-later" id="mo-later" type="button" hidden></button>
 </div>
 
 <nav class="tabs" id="tabs" aria-label="Main" hidden><div class="inner"></div></nav>
@@ -1226,7 +1236,7 @@ function dip(M){
 function cacheKey(){ return 'runway-cache-' + CODE; }
 function outboxKey(){ return 'runway-outbox-' + CODE; }
 function saveCache(state){
-  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, sig:REMOTE.sig, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS, manual:MANUAL, tasks:TASKS, asks:ASKS });
+  store.set(cacheKey(), { plan:PLAN, state:state, rev:REMOTE.rev, sig:REMOTE.sig, by:REMOTE.by, updated:REMOTE.updated, spends:SPENDS, manual:MANUAL, tasks:TASKS, asks:ASKS, recalc:RECALC });
 }
 
 function applyRemote(data){
@@ -1242,6 +1252,7 @@ function applyRemote(data){
   TASKS = Array.isArray(data.tasks) ? data.tasks : [];
   TASKS_ALL = !!data.sig;
   ASKS = Array.isArray(data.asks) ? data.asks : [];
+  RECALC = data.recalc && typeof data.recalc === 'object' ? data.recalc : {};
   if (data.bank) BANKINFO = data.bank;
   MATCH = null; CL = null;
   saveCache(data.state);
@@ -1341,6 +1352,7 @@ async function poll(){
     page = keepPage;
     render();
     motherCheck();
+    recalcCheck();
   } catch(e){ /* stay on what we have */ }
 }
 
@@ -2488,8 +2500,12 @@ function renderSheet(){
     }
   }
 
+  else if (sheetKind === 'recalc'){
+    html = recalcSheetHtml();
+  }
+
   else if (sheetKind === 'manual'){
-    var mm = manualAccounts().filter(function(x){ return x.id === manDraft.id; })[0];
+    var mm =manualAccounts().filter(function(x){ return x.id === manDraft.id; })[0];
     if (!mm){ html = '<h2 id="sheet-title">Gone</h2><p class="hint">This account is no longer in the plan.</p>'; }
     else {
       var mk = ['1','2','3','4','5','6','7','8','9','.','0','del'];
@@ -2675,19 +2691,23 @@ async function saveManual(){
   var el = $('lg-amt'), err = $('lg-err');
   var v = cents(parseAmount(el ? el.value : ''));
   if (!el || !el.value || !isFinite(v) || v < 0 || v >= 1e7){ SFX.no(); err.textContent = 'Type the balance, for example 10080.'; return; }
-  var id = manDraft.id, body = { by: ME || null, id: id, bal: v, asOf: todayStr() };
   err.textContent = 'saving…';
-  var res = null;
+  var ok = await postManual(manDraft.id, v);
+  if (sheetKind !== 'manual') return;
+  if (!ok){ SFX.no(); err.textContent = 'That did not save. Check the connection and try again.'; return; }
+  SFX.ok();
+  closeSheet();
+  render();
+}
+async function postManual(id, v){
+  var body = { by: ME || null, id: id, bal: v, asOf: todayStr() }, res = null;
   try {
     res = await fetch(API + '/api/manual/' + CODE, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   } catch(e){ res = null; }
-  if (sheetKind !== 'manual') return;
-  if (!res || !res.ok){ SFX.no(); err.textContent = 'That did not save. Check the connection and try again.'; return; }
-  SFX.ok();
+  if (!res || !res.ok) return false;
   MANUAL[id] = { bal: v, asOf: body.asOf, by: body.by };
   saveCache(stateForCache());
-  closeSheet();
-  render();
+  return true;
 }
 
 function saveSpend(){
@@ -2783,6 +2803,7 @@ function go(p, pushState){
   render();
   if (arriving) TYPE.run($('s-' + p));
   if (p === 'mother') motherCheck();
+  recalcCheck();
 }
 
 function renderLive(){
@@ -2805,7 +2826,7 @@ function render(){
   $('tabs').firstElementChild.innerHTML = PAGES.map(function(p){
     var here = ['month','debts','spends','bank','payments'].indexOf(page) > -1 ? 'today' : (page === 'subs' ? cameFrom : page);
     return '<button data-go="' + p[0] + '" aria-current="' + (here === p[0] ? 'page' : 'false') + '">' +
-      p[1] + '<em' + ((p[0] === 'mother' && (toHear().length || toAnswer().length)) || (p[0] === 'tasks' && taskPings().length) ? ' class="call"' : '') + '></em></button>';
+      p[1] + '<em' + ((p[0] === 'mother' && (toHear().length || toAnswer().length || recalcDue())) || (p[0] === 'tasks' && taskPings().length) ? ' class="call"' : '') + '></em></button>';
   }).join('');
 
   var cur = model(S), base = model(BASE);
@@ -2819,7 +2840,7 @@ function render(){
   var fx = fixes();
   SFX.alert(page === 'today' && !!fx);
   $('t-hero').innerHTML = env ? todayHeroHtml(env) : oHero('By ' + lastLabel, fmt(cur.end));
-  $('t-act').innerHTML = whoHtml() + savingsAskHtml() + motherRowHtml() + actRowHtml(fx) + alertsLine();
+  $('t-act').innerHTML = whoHtml() + recalcRowHtml() + (recalcDue() ? '' : savingsAskHtml()) + motherRowHtml() + actRowHtml(fx) + alertsLine();
   renderMother();
   $('t-cats').innerHTML = env ? everydayHtml(env) : '';
   $('t-bank').innerHTML = todayMoneyHtml(env);
@@ -3296,10 +3317,12 @@ function renderMother(){
   var wait = toAnswer();
   $('mo-head').innerHTML = '<p class="mo-l dim">Interface 2037</p><p class="mo-l">Ready for inquiry<span class="mo-cur"></span></p>' +
     (askErr ? '<p class="err" role="alert">' + esc(askErr) + '</p>' : '') +
-    whoHtml() +
+    whoHtml() + recalcRowHtml() +
     wait.map(function(x){ return oAmb(x.by + ' asks · answer', 'data-inq="' + esc(x.id) + '"'); }).join('');
-  var list = ASKS.slice().sort(function(x, y){ return x.at < y.at ? 1 : -1; });
+  var list = ASKS.concat(Object.keys(RECALC).map(function(k){ return { rc: k, at: RECALC[k].at || '' }; }))
+    .sort(function(x, y){ return x.at < y.at ? 1 : -1; });
   $('mo-list').innerHTML = oGrp('Log', list.length ? String(list.length) : '') + (list.length ? list.map(function(x){
+    if (x.rc) return recalcLogHtml(x.rc, RECALC[x.rc]);
     var fresh = x.a && mine(x) && !heard(x.id);
     return '<button class="mo-q" type="button" data-inq="' + esc(x.id) + '">' +
       '<span class="who">' + esc(x.by) + ' · ' + esc(stamp(x.at)) + (fresh ? '<span class="new">new</span>' : '') + '</span>' +
@@ -3362,58 +3385,77 @@ function motherCheck(){
   var h = toHear().sort(function(x, y){ return x.aAt < y.aAt ? -1 : 1; });
   if (h.length) playAnswer(h[0]);
 }
+/* MOTHER's screen: lines typed a character at a time. A tap on the screen sets skip
+   and the rest prints at once; a newer run (moJob) stops an older one. */
+function moScreen(my){
+  var scr = $('mo-scr');
+  var T = { skip: false, calm: !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) };
+  T.wait = function(ms){ return new Promise(function(ok){ setTimeout(ok, ms); }); };
+  T.line = function(cls){ var el = document.createElement('span'); if (cls) el.className = cls; scr.appendChild(el); return el; };
+  T.nl = function(n){ scr.appendChild(document.createTextNode(n === 2 ? '\n\n' : '\n')); };
+  T.type = async function(el, text, per, keys){
+    if (T.calm || T.skip){ el.textContent = text; return; }
+    for (var i = 1; i <= text.length; i++){
+      if (my !== moJob) return;
+      if (T.skip){ el.textContent = text; return; }
+      el.textContent = text.slice(0, i);
+      if (keys && i % 3 === 0 && /\S/.test(text.charAt(i - 1))) SFX.key();
+      await T.wait(per);
+    }
+  };
+  T.cursor = function(el){ var c = document.createElement('span'); c.className = 'mo-cur'; el.appendChild(c); };
+  /* The computing grid, for ms milliseconds. */
+  T.grid = async function(ms){
+    if (T.calm || T.skip || my !== moJob) return;
+    var grid = $('mo-grid');
+    grid.innerHTML = new Array(97).join('<i></i>');
+    grid.hidden = false;
+    var cells = grid.children, t0 = performance.now(), next = 0;
+    while (performance.now() - t0 < ms && my === moJob && !T.skip){
+      if (performance.now() - t0 >= next){ SFX.readout(); next += 720; }
+      for (var k = 0; k < cells.length; k++) cells[k].className = Math.random() < 0.34 ? 'on' : '';
+      await T.wait(70);
+    }
+    grid.hidden = true;
+  };
+  return T;
+}
+function moOpen(label){
+  var box = $('mo-play');
+  $('mo-scr').innerHTML = '';
+  $('mo-grid').hidden = true; $('mo-go').hidden = true; $('mo-later').hidden = true;
+  box.setAttribute('aria-label', label);
+  box.hidden = false;
+  document.body.style.overflow = 'hidden';
+}
 /* The playback. It opens on a key to press: sound can only start from a tap, and
    the answer should not run before anyone is looking. A tap while it runs skips ahead. */
 function playAnswer(x){
   if (moPlaying) return;
   moPlaying = true;
-  var my = ++moJob, box = $('mo-play'), scr = $('mo-scr'), grid = $('mo-grid'), btn = $('mo-go'), skip = false;
-  var calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function wait(ms){ return new Promise(function(ok){ setTimeout(ok, ms); }); }
-  function line(cls){ var el = document.createElement('span'); if (cls) el.className = cls; scr.appendChild(el); return el; }
-  function nl(n){ scr.appendChild(document.createTextNode(n === 2 ? '\n\n' : '\n')); }
-  async function type(el, text, per, keys){
-    if (calm || skip){ el.textContent = text; return; }
-    for (var i = 1; i <= text.length; i++){
-      if (my !== moJob) return;
-      if (skip){ el.textContent = text; return; }
-      el.textContent = text.slice(0, i);
-      if (keys && i % 3 === 0 && /\S/.test(text.charAt(i - 1))) SFX.key();
-      await wait(per);
-    }
-  }
+  var my = ++moJob, box = $('mo-play'), scr = $('mo-scr'), btn = $('mo-go'), T = moScreen(my);
   async function run(){
     scr.innerHTML = '';
     SFX.chatter();
-    await type(line('dim'), 'MU/TH/UR 6000', 16); nl();
-    await type(line('dim'), 'Interface 2037', 16); nl(2);
-    await type(line(), 'Inquiry from ' + x.by + ':', 16); nl();
-    await type(line(), '> ' + x.q, 12); nl(2);
-    await type(line(), 'Computing…', 40);
-    if (!calm && !skip && my === moJob){
-      grid.innerHTML = new Array(97).join('<i></i>');
-      grid.hidden = false;
-      var cells = grid.children, t0 = performance.now(), next = 0;
-      while (performance.now() - t0 < 2200 && my === moJob && !skip){
-        if (performance.now() - t0 >= next){ SFX.readout(); next += 720; }
-        for (var k = 0; k < cells.length; k++) cells[k].className = Math.random() < 0.34 ? 'on' : '';
-        await wait(70);
-      }
-      grid.hidden = true;
-    }
+    await T.type(T.line('dim'), 'MU/TH/UR 6000', 16); T.nl();
+    await T.type(T.line('dim'), 'Interface 2037', 16); T.nl(2);
+    await T.type(T.line(), 'Inquiry from ' + x.by + ':', 16); T.nl();
+    await T.type(T.line(), '> ' + x.q, 12); T.nl(2);
+    await T.type(T.line(), 'Computing…', 40);
+    await T.grid(2200);
     if (my !== moJob) return;
-    nl(2);
-    await type(line(), 'Response:', 30);
-    var ans = line('ans');
-    await type(ans, x.a, 28, true);
+    T.nl(2);
+    await T.type(T.line(), 'Response:', 30);
+    var ans = T.line('ans');
+    await T.type(ans, x.a, 28, true);
     if (my !== moJob) return;
-    var cur = document.createElement('span'); cur.className = 'mo-cur'; ans.appendChild(cur);
+    T.cursor(ans);
     SFX.ok();
     markHeard(x.id);
     btn.textContent = '[ Acknowledge ]'; btn.hidden = false; btn.onclick = closePlay; btn.focus();
   }
+  moOpen('MOTHER answers');
   scr.innerHTML = '<span class="dim">MU/TH/UR 6000</span>\n<span class="dim">Interface 2037</span>\n\nIncoming transmission<span class="mo-cur"></span>';
-  grid.hidden = true;
   btn.textContent = '[ Receive ]'; btn.hidden = false;
   var rang = SFX.incoming();
   btn.onclick = function(){
@@ -3422,9 +3464,7 @@ function playAnswer(x){
     SFX.incoming();
     setTimeout(function(){ if (my === moJob) run(); }, 900);
   };
-  box.onclick = function(e){ if (btn.hidden && e.target !== btn) skip = true; };
-  box.hidden = false;
-  document.body.style.overflow = 'hidden';
+  box.onclick = function(e){ if (btn.hidden && e.target !== btn) T.skip = true; };
   btn.focus();
 }
 function closePlay(){
@@ -3434,6 +3474,250 @@ function closePlay(){
   SFX.close();
   render();
   setTimeout(motherCheck, 400);   // the next one, if more came in
+}
+
+/* ─────────────────────────── the recalculation ───────────────────────────
+   As a month closes (its last day, then the first week of the next), MOTHER asks the
+   owner how it went: a few questions, one at a time, each one skippable. Nothing is
+   locked. MOTHER asks at most once a day; "Later" leaves it for tomorrow and the amber
+   row on Today keeps it in reach; "Not this month" lets the month go. When it is done
+   the other person gets an alert, and the record sits in MOTHER's log. */
+var RECALC = {};           // { 'YYYY-MM': { by, at, feel, save, flex, was, note, ask, skip } }, from the Worker
+var rcDraft = null, rcErr = '', rcFresh = false;
+var RC_FEELS = [['good','Good'],['okay','Okay'],['tight','Tight'],['rough','Rough']];
+function recalcDue(){
+  if (!PLAN || !PLAN.asOf || !ME || lc(ME) !== lc(PLAN.people.owner)) return null;
+  var d = todayStr(), ci = monthIndexOf(d);
+  var i = inRange(ci) && d === monthBounds(ci).last ? ci : Number(d.slice(8, 10)) <= 7 ? ci - 1 : -1;
+  if (!inRange(i)) return null;
+  var key = monthBounds(i).first.slice(0, 7);
+  return RECALC[key] ? null : { i: i, key: key, label: PLAN.months[i].label };
+}
+function rcAskedName(){ return 'runway-recalc-asked-' + CODE; }
+function rcAskedToday(due){ return store.get(rcAskedName()) === due.key + '|' + todayStr(); }
+/* MOTHER's own turn: once a day, on any screen, only with the Worker's answer in hand
+   (the phone's copy may not know it was already done). */
+function recalcCheck(){
+  var due = recalcDue();
+  if (!due || !rcFresh || moPlaying || sheetKind || rcAskedToday(due)) return;
+  showRecalc(due);
+}
+function recalcRowHtml(){
+  var due = recalcDue();
+  return due ? oAmb('MOTHER requires a recalculation · ' + due.label, 'data-rc="open"') : '';
+}
+function showRecalc(due){
+  moPlaying = true;
+  store.set(rcAskedName(), due.key + '|' + todayStr());
+  var my = ++moJob, box = $('mo-play'), btn = $('mo-go'), later = $('mo-later'), T = moScreen(my);
+  moOpen('MOTHER asks');
+  box.onclick = function(e){ if (e.target !== btn && e.target !== later) T.skip = true; };
+  SFX.incoming();
+  (async function(){
+    await T.type(T.line('dim'), 'MU/TH/UR 6000', 16); T.nl();
+    await T.type(T.line('dim'), 'Interface 2037', 16); T.nl(2);
+    await T.type(T.line(), 'Priority transmission', 24); T.nl();
+    await T.type(T.line('dim'), 'For ' + PLAN.people.owner, 16); T.nl(2);
+    await T.type(T.line(), due.label + ' is closing.', 30); T.nl();
+    await T.type(T.line(), 'We require a recalculation.', 30); T.nl();
+    var q = T.line();
+    await T.type(q, 'What do you think?', 34, true);
+    if (my !== moJob) return;
+    T.cursor(q);
+    btn.textContent = '[ Begin ]'; btn.hidden = false;
+    later.textContent = 'Later'; later.hidden = false;
+    btn.onclick = function(){
+      moJob++; moPlaying = false;
+      box.hidden = true;
+      document.body.style.overflow = '';
+      startRecalc(due);
+    };
+    later.onclick = async function(){
+      btn.hidden = true; later.hidden = true;
+      SFX.key();
+      T.nl(2);
+      await T.type(T.line('dim'), 'Understood. MOTHER will ask again tomorrow.', 20);
+      if (my !== moJob) return;
+      box.onclick = function(e){ if (e.target !== later) closePlay(); };
+      setTimeout(function(){ if (my === moJob) closePlay(); }, 1600);
+    };
+    btn.focus();
+  })();
+}
+/* The savings account to ask about: one the month-end check has no figure for yet. */
+function rcSaveAcct(due){
+  var last = monthBounds(due.i).last;
+  return manualAccounts().filter(function(m){ return m.id && (!m.asOf || m.asOf < last); })[0] || null;
+}
+function startRecalc(due){
+  if (!rcDraft || rcDraft.key !== due.key){
+    var acct = rcSaveAcct(due), flex = {};
+    PLAN.flex.forEach(function(f){ flex[f.id] = Number(S[f.id]) || 0; });
+    rcDraft = { key: due.key, i: due.i, label: due.label, step: 0, feel: null, save: null, acct: acct ? acct.id : null,
+      flex: flex, was: Object.assign({}, flex), note: '',
+      steps: ['feel'].concat(acct ? ['save'] : [], inRange(due.i + 1) ? ['flex'] : [], ['note']) };
+  }
+  rcErr = '';
+  openSheet('recalc');
+}
+function rcChanged(){ return !!rcDraft && PLAN.flex.some(function(f){ return rcDraft.flex[f.id] !== rcDraft.was[f.id]; }); }
+function rcGo(d){
+  rcDraft.step = Math.max(0, Math.min(rcDraft.steps.length - 1, rcDraft.step + d));
+  rcErr = '';
+  SFX.readout();
+  renderSheet();
+  TYPE.run($('sheet'));
+  var st = rcDraft.steps[rcDraft.step];
+  var f = st === 'save' ? $('lg-amt') : st === 'note' ? $('rc-note') : $('sheet').querySelector('button');
+  if (f) f.focus();
+}
+function rcFlex(id, d){
+  var f = PLAN.flex.filter(function(x){ return x.id === id; })[0];
+  if (!f) return;
+  var v = Math.max(f.min, Math.min(f.max, (rcDraft.flex[id] || 0) + d * f.step));
+  if (v === rcDraft.flex[id]){ SFX.no(); return; }
+  rcDraft.flex[id] = v;
+  SFX.key();
+  renderSheet();
+  var k = $('sheet').querySelector('[data-rcf="' + id + '"][data-d="' + d + '"]');
+  if (k) k.focus();
+}
+/* The savings figure goes up on its own, straight away, like the savings sheet. */
+async function rcSaveStep(){
+  var el = $('lg-amt'), err = $('lg-err');
+  if (!el || !el.value) return rcGo(1);
+  var v = cents(parseAmount(el.value));
+  if (!isFinite(v) || v < 0 || v >= 1e7){ SFX.no(); err.textContent = 'Type the balance, for example 10080.'; return; }
+  err.textContent = 'saving…';
+  var ok = await postManual(rcDraft.acct, v);
+  if (sheetKind !== 'recalc') return;
+  if (!ok){ SFX.no(); err.textContent = 'That did not save. Check the connection and try again.'; return; }
+  rcDraft.save = v;
+  SFX.ok();
+  rcGo(1);
+}
+async function sendRecalc(skip){
+  var rd = rcDraft;
+  if (!rd || !ME) return closeSheet();
+  var moved = !skip && rcChanged();
+  var body = { by: ME, month: rd.key, recalc: { skip: true } };
+  if (!skip){
+    body.recalc = { feel: rd.feel, save: rd.save, note: String(rd.note || '').trim() };
+    if (moved){ body.recalc.flex = rd.flex; body.recalc.was = rd.was; }
+    if (body.recalc.note) body.recalc.ask = newId();
+  }
+  var e = $('rc-err');
+  if (e) e.textContent = 'transmitting…';
+  var out = await askWrite('/api/recalc/' + CODE, 'POST', body);
+  if (sheetKind !== 'recalc') return;
+  if (!out || !out.recalc){
+    SFX.no();
+    rcErr = 'Not sent. Check the connection and try again.';
+    if ($('rc-err')) $('rc-err').textContent = rcErr;
+    return;
+  }
+  RECALC[rd.key] = out.recalc;
+  if (out.ask) ASKS = ASKS.filter(function(x){ return x.id !== out.ask.id; }).concat([out.ask]);
+  if (moved){ PLAN.flex.forEach(function(f){ S[f.id] = rd.flex[f.id]; }); push(); }
+  rcDraft = null;
+  saveCache(stateForCache());
+  closeSheet();
+  render();
+  playRecalcDone(out.recalc, rd.label);
+}
+function rcTrackWords(tk){
+  if (!tk) return 'The forecast is updated.';
+  if (tk.state === 'on') return 'On track with the plan.';
+  if (tk.state === 'ahead') return fmt(tk.gap) + ' ahead of the plan.';
+  return fmt(-tk.gap) + ' behind the plan. The forecast shows where.';
+}
+function playRecalcDone(rec, label){
+  if (moPlaying) return;
+  moPlaying = true;
+  var my = ++moJob, box = $('mo-play'), btn = $('mo-go'), T = moScreen(my);
+  moOpen('MOTHER');
+  box.onclick = function(){ if (btn.hidden) T.skip = true; };
+  (async function(){
+    await T.type(T.line('dim'), 'MU/TH/UR 6000', 16); T.nl(2);
+    if (rec.skip){
+      await T.type(T.line(), 'Understood.', 30); T.nl();
+      await T.type(T.line(), label + ' will not be recalculated.', 24);
+    } else {
+      await T.type(T.line(), 'Recalculating ' + label + '…', 30);
+      await T.grid(1800);
+      if (my !== moJob) return;
+      T.nl(2);
+      await T.type(T.line(), 'Recalculation complete.', 30); T.nl();
+      await T.type(T.line(), rcTrackWords(onTrack()), 24); T.nl(2);
+      if (rec.ask){ await T.type(T.line(), 'Your question is with ' + PLAN.people.other + '.', 24); T.nl(); }
+      await T.type(T.line('dim'), PLAN.people.other + ' has been informed.', 24);
+    }
+    if (my !== moJob) return;
+    SFX.ok();
+    btn.textContent = '[ Acknowledge ]'; btn.hidden = false; btn.onclick = closePlay; btn.focus();
+  })();
+}
+function recalcSheetHtml(){
+  var rd = rcDraft, st = rd.steps[rd.step];
+  var html = '<div class="lg-head"><button class="cancel" data-act="cancel">Later</button><h2 id="sheet-title">Recalculation</h2>' +
+    '<span class="date">' + (rd.step + 1) + ' / ' + rd.steps.length + '</span></div>';
+  if (st === 'feel'){
+    html += '<p class="rc-q">How did ' + esc(rd.label) + ' go?</p>' +
+      '<div class="o-chips" role="group" aria-label="How the month went">' + RC_FEELS.map(function(f){
+        return '<button class="o-key" type="button" data-rcfeel="' + f[0] + '" aria-pressed="' + (rd.feel === f[0]) + '">' + f[1] + '</button>';
+      }).join('') + '</div>' +
+      '<button class="o-row dim" type="button" data-rc="next"><span>Rather not say</span></button>';
+  } else if (st === 'save'){
+    var ma = manualAccounts().filter(function(m){ return m.id === rd.acct; })[0];
+    var mk = ['1','2','3','4','5','6','7','8','9','.','0','del'];
+    html += '<p class="rc-q">What does ' + esc(ma ? ma.name.toLowerCase() : 'savings') + ' show today?</p>' +
+      '<p class="hint">' + (ma ? 'MOTHER has ' + esc(fmt(manualBal(ma))) + ' on file. ' : '') + 'It goes into the month-end check.</p>' +
+      '<div class="lg-amt"><input id="lg-amt" type="text" inputmode="none" autocomplete="off" enterkeyhint="done" placeholder="' +
+        esc(CUR) + '0" aria-label="Balance today"></div>' +
+      '<div class="pad">' + mk.map(function(k){
+        return '<button type="button" data-key="' + k + '" aria-label="' + (k === 'del' ? 'Delete' : k === '.' ? 'Decimal point' : k) + '">' +
+          (k === 'del' ? '⌫' : k) + '</button>';
+      }).join('') + '</div>' +
+      '<p class="err" id="lg-err" role="alert"></p>' +
+      '<button class="enter" data-rc="save">Next</button>' +
+      '<button class="o-row dim" type="button" data-rc="next"><span>I will check it later</span></button>';
+  } else if (st === 'flex'){
+    html += '<p class="rc-q">Everyday budgets from ' + esc(PLAN.months[rd.i + 1].label) + '. Keep them?</p>' +
+      PLAN.flex.map(function(f){
+        return '<div class="rc-step"><span>' + esc(f.label) + '</span>' +
+          '<button class="o-key" type="button" data-rcf="' + esc(f.id) + '" data-d="-1" aria-label="Less for ' + esc(f.label) + '">−</button>' +
+          '<span class="v">' + esc(fmt(rd.flex[f.id])) + '</span>' +
+          '<button class="o-key" type="button" data-rcf="' + esc(f.id) + '" data-d="1" aria-label="More for ' + esc(f.label) + '">+</button>' +
+          '<span class="o-sm">Plan ' + esc(fmt(f.plan)) + (rd.flex[f.id] !== rd.was[f.id] ? ' · was ' + esc(fmt(rd.was[f.id])) : '') + '</span></div>';
+      }).join('') +
+      '<div id="sheet-result">' + resultRows(Object.assign({}, S, rd.flex)) + '</div>' +
+      '<button class="enter" data-rc="next">' + (rcChanged() ? 'Next' : 'Keep them') + '</button>';
+  } else {
+    html += '<p class="rc-q">Anything coming up the plan does not know?</p>' +
+      '<p class="hint">Costs, changes, a question for ' + esc(PLAN.people.other) + '. Or leave it empty.</p>' +
+      '<textarea class="mo-ta" id="rc-note" maxlength="240" placeholder="All clear" aria-label="Anything the plan should know">' + esc(rd.note) + '</textarea>' +
+      '<button class="enter" data-rc="send">Transmit</button>';
+  }
+  return html + '<p class="err" id="rc-err" role="alert">' + esc(rcErr) + '</p>' +
+    (rd.step > 0 ? '<button class="o-row dim" type="button" data-rc="back"><span>‹ Back</span></button>' : '') +
+    '<button class="o-row dim" type="button" data-rc="skip"><span>Not this month</span></button>';
+}
+/* In MOTHER's log, for both of them. */
+function recalcLogHtml(key, r){
+  var p = key.split('-').map(Number);
+  var label = new Date(p[0], p[1] - 1, 1).toLocaleDateString('en-GB', { month:'long' });
+  var lines = [];
+  if (r.skip) lines.push('Not this month');
+  else {
+    if (r.feel) lines.push('Went ' + r.feel);
+    if (r.save !== undefined && r.save !== null) lines.push('Savings ' + fmt(r.save));
+    var moved = r.flex ? PLAN.flex.filter(function(f){ return r.flex[f.id] !== undefined && !(r.was && r.was[f.id] === r.flex[f.id]); }) : [];
+    lines.push(moved.length ? moved.map(function(f){
+      return f.label + ' ' + (r.was && r.was[f.id] !== undefined ? fmt(r.was[f.id]) + ' → ' : '') + fmt(r.flex[f.id]);
+    }).join(' · ') : 'Budgets kept');
+  }
+  return '<div class="mo-q"><span class="who">' + esc(r.by) + ' · ' + esc(stamp(r.at)) + '</span>' +
+    '<span class="q">&gt; Recalculation · ' + esc(label) + '</span><span class="a">' + esc(lines.join('\n')) + '</span></div>';
 }
 
 var FORECAST_SPEND_RULE = 'Spending more than that lowers these figures. Spending less does not raise them ' +
@@ -3876,6 +4160,21 @@ document.addEventListener('click', function(e){
     if (!askDraft || askDraft.id !== inqId) askDraft = { id: inqId, a: '' };
     return openSheet('inq');
   }
+  var rc = e.target.closest('[data-rc],[data-rcfeel],[data-rcf]');
+  if (rc){
+    e.preventDefault();
+    var rq = rc.dataset;
+    if (rq.rc === 'open'){ var due = recalcDue(); if (due) startRecalc(due); return; }
+    if (!rcDraft || sheetKind !== 'recalc') return;
+    if (rq.rcfeel){ rcDraft.feel = rq.rcfeel; SFX.key(); return rcGo(1); }
+    if (rq.rcf) return rcFlex(rq.rcf, Number(rq.d));
+    if (rq.rc === 'next') return rcGo(1);
+    if (rq.rc === 'back') return rcGo(-1);
+    if (rq.rc === 'save') return rcSaveStep();
+    if (rq.rc === 'send') return sendRecalc(false);
+    if (rq.rc === 'skip') return sendRecalc(true);
+    return;
+  }
   var b = e.target.closest('[data-go],[data-sheet],[data-back],[data-open],[data-act],[data-cat],[data-day],[data-del],[data-key],[data-dir],[data-man]');
   if (!b) return;
   if (b.dataset.sheet === 'ask'){ e.preventDefault(); if (!askDraft || askDraft.q === undefined) askDraft = { q: '' }; askErr = ''; return openSheet('ask'); }
@@ -3971,12 +4270,17 @@ $('sheet').addEventListener('keydown', function(e){
     e.preventDefault();
     saveManual();
   }
+  if (sheetKind === 'recalc' && e.key === 'Enter' && e.target.id === 'lg-amt'){
+    e.preventDefault();
+    rcSaveStep();
+  }
 });
 $('sheet').addEventListener('input', function(e){
   var el = e.target;
   /* Typing on MOTHER's terminal sounds its keys; a phone keyboard sends no pointerdown. */
   if (el.id === 'mo-q'){ SFX.key(); askDraft = { q: el.value }; return; }
   if (el.id === 'mo-a'){ SFX.key(); askDraft = { id: inqId, a: el.value }; return; }
+  if (el.id === 'rc-note' && rcDraft){ SFX.key(); rcDraft.note = el.value; return; }
   if (el.id === 'lg-amt') return updateLogHint();
   if (el.type !== 'range') return;
   draft[el.dataset.k] = Number(el.value);
@@ -4099,7 +4403,7 @@ async function start(){
 
   var cached = store.get(cacheKey());
   if (cached && cached.plan){
-    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends, manual:cached.manual, tasks:cached.tasks, asks:cached.asks, sig:cached.sig });
+    applyRemote({ plan:cached.plan, state:cached.state, rev:cached.rev, by:cached.by, updated:cached.updated, spends:cached.spends, manual:cached.manual, tasks:cached.tasks, asks:cached.asks, recalc:cached.recalc, sig:cached.sig });
     $('boot').hidden = true; $('app').hidden = false;
     go(location.hash.slice(1) || 'today', false);
   }
@@ -4107,6 +4411,7 @@ async function start(){
   try {
     var data = await pull();
     applyRemote(data);
+    rcFresh = true;
     $('boot').hidden = true; $('app').hidden = false;
     go(location.hash.slice(1) || 'today', false);
   } catch(err){
