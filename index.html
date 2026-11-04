@@ -908,7 +908,7 @@ function isIn(s){ return s.dir === 'in'; }
    transfer) adds to the month's money: total is the budget plus what came in.
    left may be negative. */
 function envelope(i, st){
-  st = st || S;
+  st = stAt(i, st || S);
   var all = spendsIn(i), today = todayStr(), b = monthBounds(i);
   var list = all.filter(function(s){ return !isIn(s); });
   var income = cents(all.filter(isIn).reduce(function(t, s){ return t + s.amt; }, 0));
@@ -1011,6 +1011,12 @@ var changed = function(){ return !same(S, BASE); };
 function sum(list){ return list.reduce(function(t,x){ return t + x.amount; }, 0); }
 function keptSubs(st){
   return PLAN.subs.filter(function(s){ return (st.subs||[]).indexOf(s.id) > -1; });
+}
+/* A month that is over keeps the everyday budgets it had: the recalculation at its
+   end records them (was), so a slider moved for next month never rewrites the past. */
+function stAt(i, st){
+  var b = monthBounds(i), r = RECALC && RECALC[b.first.slice(0, 7)];
+  return r && r.was && todayStr() > b.last ? Object.assign({}, st, r.was) : st;
 }
 function flexTotal(st){
   return PLAN.flex.reduce(function(t,f){ return t + (Number(st[f.id])||0); }, 0);
@@ -1120,7 +1126,10 @@ function monthEnd(i){
   (PLAN.bank && PLAN.bank.manual || []).forEach(function(pm){
     var v = snap.manual && snap.manual[pm.id];
     if (!v) return;
-    manual += Number(v.bal) + (v.confirmed ? 0 : savingsMoves({ bank: pm.bank, asOf: v.asOf || b.first }, b.last));
+    /* A confirmed balance was typed on the 1st to 3rd, after any transfer out of savings
+       on those days; wind those back so the month end is what savings held on the last day. */
+    manual += Number(v.bal) + (v.confirmed ? -savingsMoves({ bank: pm.bank, asOf: b.last }, v.asOf)
+      : savingsMoves({ bank: pm.bank, asOf: v.asOf || b.first }, b.last));
   });
   return { real: cents(snap.conn + manual), at: snap.at, partial: !!snap.partial, confirmed: Object.keys(snap.manual || {}).some(function(k){ return snap.manual[k].confirmed; }) };
 }
@@ -1154,6 +1163,7 @@ function trackLineHtml(tk){
 function model(st, track){
   var subsT = sum(keptSubs(st));
   var monthly = sum(PLAN.fixed) + sum(PLAN.loans) + subsT + flexTotal(st);
+  var fixedT = sum(PLAN.fixed) + sum(PLAN.loans) + subsT;
   var PM = planOnly();
   var A = PM ? null : anchor();
   var bal = A ? A.bal : PM ? Number(PLAN.forecast.start) : PLAN.start, M = [];
@@ -1184,7 +1194,7 @@ function model(st, track){
       if (m.key === PLAN.salary.from || afterKey(m.key, PLAN.salary.from)) {
         items.push({ name:'Salary', amount: Number(st.salary)||0 });
       }
-      items.push({ name:'Monthly budget', amount: -monthly });
+      items.push({ name:'Monthly budget', amount: -(fixedT + flexTotal(stAt(i, st))) });
       var over = PM && !track ? 0 : overBudget(i, st);
       if (over) items.push({ name:'Over budget', amount: -over });
       (PLAN.oneOffs||[]).forEach(function(o){
