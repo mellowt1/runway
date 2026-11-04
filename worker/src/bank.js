@@ -278,6 +278,7 @@ export async function syncCode(env, code, { psu } = {}) {
   const now = new Date().toISOString();
   let added = 0;
   const errors = [];
+  const fresh = [];
 
   for (const conn of meta.conns) {
     if (conn.until && Date.parse(conn.until) < Date.now()) {
@@ -296,6 +297,7 @@ export async function syncCode(env, code, { psu } = {}) {
       const b = pickBalance(bal.data.balances);
       if (b && Number.isFinite(b.amt)) Object.assign(acct, { bal: b.amt, balType: b.type, balAt: now });
 
+      const isNew = !acct.synced;
       const from = acct.synced ? addDays(acct.synced.slice(0, 10), -OVERLAP_DAYS) : addDays(today(), -FIRST_DAYS);
       const txs = await fetchAll(env, acct.uid, from, psu);
       if (!txs.ok) {
@@ -315,6 +317,7 @@ export async function syncCode(env, code, { psu } = {}) {
         }
       }
       acct.synced = now;
+      if (isNew) fresh.push(acct);
     }
     if (failed) {
       conn.status = failed.kind === 'consent_expired' ? 'expired' : 'error';
@@ -337,6 +340,7 @@ export async function syncCode(env, code, { psu } = {}) {
   meta.rev = (meta.rev || 0) + 1;
   await write(env, `banktx:${code}`, { list, rev: (txDoc.rev || 0) + 1 });
   await write(env, metaKey, meta);
+  await backfillMonths(env, code, fresh, list);
   await snapMonth(env, code, meta, errors.length > 0);
   return { ok: !errors.length, added, errors };
 }
@@ -364,17 +368,47 @@ async function manualNow(env, code) {
 // Every sync overwrites this month's entry; the month's last sync is what stays.
 export async function snapMonth(env, code, meta, partial) {
   let conn = 0, n = 0;
+  const ks = [];
   for (const c of meta.conns || []) {
     for (const a of c.accounts || []) {
-      if ((!a.cur || a.cur === 'EUR') && Number.isFinite(a.bal)) { conn += a.bal; n++; }
+      if ((!a.cur || a.cur === 'EUR') && Number.isFinite(a.bal)) { conn += a.bal; n++; ks.push(a.k); }
     }
   }
   if (!n) return;
   const key = `month:${code}`;
   const doc = (await read(env, key)) || { m: {}, rev: 0 };
   const m = nlMonth();
-  doc.m[m] = { conn: Math.round(conn * 100) / 100, manual: await manualNow(env, code), at: new Date().toISOString() };
+  doc.m[m] = { conn: Math.round(conn * 100) / 100, ks, manual: await manualNow(env, code), at: new Date().toISOString() };
   if (partial) doc.m[m].partial = true;
+  doc.rev = (doc.rev || 0) + 1;
+  await write(env, key, doc);
+}
+// An account connected after a month closed was missing from that month's check. Its
+// balance on the month's last day is today's balance less everything booked since, as
+// long as its history reaches back that far. Each account is added to a month once.
+export async function backfillMonths(env, code, fresh, list) {
+  const use = fresh.filter((a) => (!a.cur || a.cur === 'EUR') && Number.isFinite(a.bal));
+  if (!use.length) return;
+  const key = `month:${code}`;
+  const doc = await read(env, key);
+  if (!doc || !doc.m) return;
+  const cur = nlMonth(), reach = addDays(today(), -FIRST_DAYS);
+  let n = 0;
+  for (const [m, snap] of Object.entries(doc.m)) {
+    if (m >= cur) continue;
+    const [y, mo] = m.split('-').map(Number);
+    const last = new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
+    if (last < reach) continue;
+    for (const a of use) {
+      if ((snap.ks && snap.ks.includes(a.k)) || (snap.late && a.k in snap.late)) continue;
+      const since = list.filter((t) => t.k === a.k && t.d > last).reduce((s, t) => s + t.amt, 0);
+      const v = Math.round((a.bal - since) * 100) / 100;
+      snap.conn = Math.round((snap.conn + v) * 100) / 100;
+      snap.late = Object.assign({}, snap.late, { [a.k]: v });
+      n++;
+    }
+  }
+  if (!n) return;
   doc.rev = (doc.rev || 0) + 1;
   await write(env, key, doc);
 }
@@ -526,9 +560,12 @@ async function handleCallback(request, env, ctx) {
 
   const metaKey = `bank:${auth.code}`;
   const meta = (await read(env, metaKey)) || { conns: [], rev: 0 };
-  // Reconnecting a bank replaces its old consent rather than adding a second one.
-  const old = meta.conns.filter((c) => c.bank === auth.name && c.country === auth.country);
-  meta.conns = meta.conns.filter((c) => !(c.bank === auth.name && c.country === auth.country));
+  // Reconnecting replaces the old consent for the same accounts. A bank that gives one
+  // consent per account (ABN AMRO) keeps the others, so a second account adds to the first.
+  const keys = new Set(accounts.map((a) => a.k));
+  const same = (c) => c.bank === auth.name && c.country === auth.country && (c.accounts || []).some((a) => keys.has(a.k));
+  const old = meta.conns.filter(same);
+  meta.conns = meta.conns.filter((c) => !same(c));
   // Carry each account's sync point over, so a reconnect does not refetch 90 days.
   const oldAccts = new Map(old.flatMap((c) => c.accounts || []).map((a) => [a.k, a]));
   for (const a of accounts) {
