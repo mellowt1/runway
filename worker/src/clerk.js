@@ -49,6 +49,7 @@ const TTL = 400 * 24 * 3600;
 const WINDOW_DAYS = 90;      // the first run reads this far back, no further
 const MAX_ROWS = 200;        // the most payments one run reads; the rest wait for the next
 const EARLIER = 6;           // the payee's other payments shown with each one
+const PAST_QS = 20;          // his earlier answers shown to the model, so it learns how he sorts
 const MAX_QUESTIONS = 5;
 const MIN_GAP_MS = 2 * 3600e3;
 const SMALL = 10;            // everyday card payments under this are not worth a question
@@ -109,6 +110,7 @@ export const SYSTEM = [
   'Your job: find the few payments Runway is probably counting wrong, and ask the owner about them. You never change anything yourself; each answer you offer is a change he can tap.',
   'Good questions: a payment to a person that looks like a loan, a shared cost, or something to be paid back (it should not count as his everyday spending); a payment that is clearly a bill or debt but counts as everyday; a credit that is a refund or someone paying him back; a big one-off sitting in everyday; a transfer to his own savings counted as spending.',
   'Do not ask about ordinary shopping, food, transport or small card payments; do not ask about anything Runway already sorts correctly; do not ask the same thing twice (the open questions are listed). Ask nothing when nothing looks wrong: an empty list is a good answer.',
+  'Learn from his earlier answers (listed): a payee or kind of payment he already explained needs no new question when it is sorted the way he chose; when a new payment is like one he answered but sorted differently, ask, offering his earlier choice first. A question he left as it was means that case was fine.',
   'One question may cover several payments to the same payee. Offer a payee answer (every payment to this payee) only when the payments repeat and the answer would hold for future ones too; otherwise row.',
   'Each question needs one to three answers, the likeliest first. Include the answer that keeps Runway as it is only when it is a real possibility, labelled plainly (e.g. "Everyday, it\'s fine").',
   'Write the question in plain English, short, to the owner by his first name, naming the payee, the date and the amount (e.g. "Sam, €40 to Alex on 3 Mar: what was it?"). No figures you were not given; never add up amounts.',
@@ -177,7 +179,7 @@ async function callModel(env, input) {
     max_tokens: 16000,
     system: SYSTEM,
     messages: [{ role: 'user', content: input }],
-    output_config: { effort: 'medium', format: zodOutputFormat(Findings) },
+    output_config: { effort: 'high', format: zodOutputFormat(Findings) }, // high since 2026-11-08: the owner wants it as sharp as it can be
     fallbacks: 'default',
     betas: ['server-side-fallback-2026-07-01'],
   });
@@ -263,9 +265,15 @@ export async function runClerk(env, code, { now = new Date(), force = false } = 
   });
   const people = plan.people || {};
   const open = doc.qs.filter((q) => q.status === 'open').map((q) => q.text);
+  // What he told the clerk before, newest first, so it learns how he sorts things.
+  const told = doc.qs.filter((q) => q.status === 'answered' || q.status === 'left').slice(0, PAST_QS).map((q) => {
+    const a = q.status === 'answered' && Array.isArray(q.answers) ? q.answers[q.chose] : null;
+    return `- ${q.text} -> ${a ? a.label : 'left it as it was'}`;
+  });
   const input = [
     `Today: ${nlParts(now).date}. The owner is ${people.owner || 'the owner'}; the other person is ${people.other || 'his brother'}.`,
     `The plan's lines (JSON):\n${JSON.stringify(planLines(plan))}`,
+    told.length ? `Questions he answered before, newest first (question -> his answer):\n${told.join('\n')}` : 'He has not answered any questions yet.',
     open.length ? `Questions already waiting for an answer:\n${open.map((s) => '- ' + s).join('\n')}` : 'No questions are waiting.',
     `Payments Runway has not shown you before, newest first (JSON; amount negative = money out):\n${JSON.stringify(payments)}`,
   ].join('\n\n');
