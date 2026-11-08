@@ -5,3 +5,6 @@ seed.json
 # whatever plan was seeded into it, real figures included).
 .dev.vars
 .wrangler/
+
+# npm install for the Worker bundle
+node_modules/

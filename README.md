@@ -24,7 +24,8 @@ Optional. Once connected, Runway reads the balance and booked payments of the re
 - **Buckets.** Every payment is everyday, bills, debt payments or a one-off. Payees matching the plan's `fixed` and `subs` are bills, `loans` are debt (an item's optional `payee` field names the payee), `bank.rules` in the plan come first, and a person's choice in the app ("this payment only" or "every payment to this payee") beats all of them. Money moved between two connected accounts is paired and never counted.
 - **What it changes.** Everyday payments count against the month's budget together with cash (the spend log becomes "Cash"). One-offs move the forecast. The Month page shows the four buckets, planned against actual.
 - **Bills.** The Bills screen lists this month's bills as paid, coming or late. Each bill's usual day and account are learned from the last three months of payments. It also flags debits that came back, accounts too low for the next three days of bills, pockets not topped up, cancelled subscriptions still charging, payments that repeat without being in the plan, and bills whose amount changed. The page sends that schedule to the Worker, and every sync alerts on the same rules (`worker/src/watch.js`). None of it touches the forecast.
-- **Documents.** `pin:<code>`, `bank:<code>` (connections, balances), `banktx:<code>` (payments), `tags:<code>` (what people changed), `watch:<code>` (the bills schedule and which alerts went out). See the header of `worker/src/bank.js`.
+- **Money clerk.** After a sync, the Worker sends the payments it has not read yet, with the plan and how Runway counts each one, to Claude (`worker/src/clerk.js`, needs the secret `ANTHROPIC_API_KEY`). Claude asks about the ones that look counted wrong, in MOTHER, with up to three answers. Each answer is a change a person could make by hand (one payment's bucket, every payment to a payee, not spending), and the Worker applies it only when someone taps it. Code checks every question against the payments it was shown, a question is never asked twice, and an answer is refused when someone changed those payments by hand in the meantime. A payment someone pays back goes in **Paid back**, which counts nowhere. The clerk runs from the cron only, at most every two hours, and only when there are payments it has not read.
+- **Documents.** `pin:<code>`, `bank:<code>` (connections, balances), `banktx:<code>` (payments), `tags:<code>` (what people changed), `watch:<code>` (the bills schedule and which alerts went out), `clerk:<code>` (how the page counts recent payments, which ones the clerk has read, its questions). See the header of `worker/src/bank.js`.
 
 ### Setting it up
 
@@ -47,7 +48,7 @@ https://mellowt1.github.io/runway/?c=<code>&me=<first name>
 ## Setting it up
 
 1. **KV** — Cloudflare dashboard → Workers & Pages → KV → Create, call it `RUNWAY`, and paste its id into `wrangler.toml` at the repo root.
-2. **Worker** — deploy with git-connected Workers Builds (root directory `/`, deploy command `npx wrangler deploy`) or by running `npx wrangler deploy` in the repo root. `wrangler.toml` sits at the root and points at `worker/src/worker.js`, so the site and the Worker deploy from the same place. Set one secret:
+2. **Worker** — run `npm install` once (the Worker bundles the Anthropic SDK and zod), then deploy with git-connected Workers Builds (root directory `/`, deploy command `npx wrangler deploy`) or by running `npx wrangler deploy` in the repo root. `wrangler.toml` sits at the root and points at `worker/src/worker.js`, so the site and the Worker deploy from the same place. Set one secret:
    ```
    npx wrangler secret put ADMIN_TOKEN
    ```

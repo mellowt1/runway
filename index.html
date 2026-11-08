@@ -564,6 +564,7 @@ details p{font:400 21px/1.2 var(--serif)}
 .o-note{font:400 22px/1.2 var(--serif);margin:10px 0 4px}
 .o-foot{font:400 12px/1.5 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding-top:14px}
 .o-chips{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 6px}
+.mo-ans{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 4px}
 .o-chips .o-key{min-height:40px;font-size:20px;padding:0 12px}
 .o-chips .o-key[aria-pressed="true"]{background:var(--ink);color:var(--ground);text-shadow:none}
 .o-task{padding:0;align-items:center}
@@ -1357,6 +1358,83 @@ async function postWatch(){
   } catch(e){}
 }
 
+/* The money clerk (worker/src/clerk.js). The page tells the Worker how it counts each
+   recent payment; after a sync, Claude reads the new ones beside the plan and asks
+   about the ones that look counted wrong. A question waits in MOTHER with up to three
+   answers; each answer is a change this page could make by hand, and the Worker
+   applies it. The clerk never changes anything by itself. */
+var clerkId = null, clerkMsg = '';
+function clerkQs(){ return (BANK && BANK.clerk && BANK.clerk.qs) || []; }
+function clerkOpen(){ return clerkQs().filter(function(q){ return q.status === 'open'; }); }
+async function postClerk(){
+  if (!bankKey || !hasBank()) return;
+  var cut = new Date(Date.now() - 50 * 864e5).toISOString().slice(0, 10);
+  var rows = classified().filter(function(c){ return c.t.d >= cut && !c.own; }).map(function(c){
+    var r = { id: c.t.id, b: c.b, s: c.src, c: c.counts ? 1 : 0 };
+    if (c.item) r.i = c.item;
+    return r;
+  });
+  var sig = ((BANK.tx && BANK.tx.rev) || 0) + '.' + (tags().rev || 0) + '.' + rows.length + '.' + ((PLAN && PLAN.bank && PLAN.bank.manual) || []).length;
+  var name = 'runway-clerk-' + CODE, prev = store.get(name);
+  if (prev && prev.sig === sig && prev.day === todayStr()) return;
+  try {
+    var r = await bankFetch('/api/clerk/' + CODE, { method:'POST', body: { by: ME || null, rows: rows } });
+    if (r.ok) store.set(name, { sig: sig, day: todayStr() });
+  } catch(e){}
+}
+function clerkRowHtml(){
+  var n = clerkOpen().length;
+  if (!n) return '';
+  return oAmb('MOTHER has ' + (n === 1 ? 'a question' : n + ' questions') + ' about a payment', 'data-go="mother"');
+}
+function clerkSheetHtml(){
+  var q = clerkQs().filter(function(x){ return x.id === clerkId; })[0];
+  var head = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">MOTHER asks</h2><span></span></div>';
+  if (!q) return head + '<p class="hint">This question is gone.</p>';
+  var byId = {};
+  txList().forEach(function(t){ byId[t.id] = t; });
+  var html = head + '<p class="o-note">' + esc(q.text) + '</p>' +
+    q.rows.map(function(id){
+      var t = byId[id];
+      if (!t) return '';
+      return oRow(dayLabel(t.d) + ' · ' + (t.who || 'Payment'), (t.amt > 0 ? '+' : '') + fmtAmt(Math.abs(t.amt)), 'data-pay="' + esc(id) + '"');
+    }).join('');
+  if (clerkMsg) html += '<p class="err" role="alert">' + esc(clerkMsg) + '</p>';
+  if (q.status === 'open'){
+    html += '<div class="mo-ans">' + q.answers.map(function(a, i){
+      return '<button class="o-key" type="button" data-clerka="' + i + '">' + esc(a.label) + '</button>';
+    }).join('') + '</div>' +
+      '<button class="textbtn" type="button" data-clerka="leave" style="margin-top:14px">Leave it</button>' +
+      '<p class="o-foot">An answer changes only how these payments are counted. You can change it again under Payments.</p>';
+  } else {
+    var a = q.chose !== null && q.answers[q.chose];
+    html += '<p class="o-sm">' + esc(q.status === 'answered' && a ? 'Answered: ' + a.label : q.status === 'left' ? 'Left as it was' : 'Changed by hand before it was answered') +
+      (q.by ? ' · ' + esc(q.by) : '') + (q.doneAt ? ' · ' + esc(stamp(q.doneAt)) : '') + '</p>';
+  }
+  return html;
+}
+var clerkBusy = false;
+async function clerkAnswer(v){
+  if (clerkBusy || !clerkId) return;
+  clerkBusy = true; clerkMsg = '';
+  var r = null;
+  try { r = await bankFetch('/api/clerk/' + CODE + '/answer', { method:'POST', body: { by: ME || null, id: clerkId, idx: v === 'leave' ? null : Number(v) } }); }
+  catch(e){ r = null; }
+  clerkBusy = false;
+  if (r && r.ok){
+    if (v === 'leave') SFX.close(); else SFX.ok();
+    if (BANK && r.data && r.data.clerk) BANK.clerk = r.data.clerk;
+    closeSheet();
+    await pullBank();
+    render();
+    return;
+  }
+  SFX.no();
+  clerkMsg = r && r.status === 409 ? 'Someone changed these payments already. Nothing was changed.' : 'That did not save. Check the connection and try again.';
+  if (r && r.data && r.data.clerk && BANK) BANK.clerk = r.data.clerk;
+  renderSheet(); render();
+}
+
 /* The current month, line by line: what the forecast still takes off today's money.
    A bill the bank already shows as paid is not on it. */
 function restHtml(i){
@@ -1687,6 +1765,7 @@ function bucketLabel(b){
   if (b === 'in') return 'Money in';
   if (b === 'save') return 'To savings';
   if (b === 'check') return 'To sort';
+  if (b === 'back') return 'Paid back';
   var x = BUCKETS.filter(function(p){ return p[0] === b; })[0];
   return x ? x[1] : b;
 }
@@ -1732,7 +1811,7 @@ async function pullBank(){
   if (!bankKey) return false;
   try {
     var r = await bankFetch('/api/bank/' + CODE);
-    if (r.ok && r.data){ setBank(r.data); setTimeout(postWatch, 0); return true; }
+    if (r.ok && r.data){ setBank(r.data); setTimeout(postWatch, 0); setTimeout(postClerk, 0); return true; }
   } catch(e){}
   return false;
 }
@@ -1836,7 +1915,7 @@ function classify(t){
   }
   /* What it takes from a bucket: a debit adds, a credit moved into a bucket is a refund.
      Money in, savings and big payments still to sort count nowhere. */
-  c.counts = !c.hidden && !c.ns && c.b !== 'in' && c.b !== 'save' && c.b !== 'check';
+  c.counts = !c.hidden && !c.ns && c.b !== 'in' && c.b !== 'save' && c.b !== 'check' && c.b !== 'back';
   c.out = -t.amt;
   c.atm = t.amt < 0 && (t.mcc === '6011' || ATM.test(normText(t.who + ' ' + (t.desc || '')).join(' ')));
   c.pocket = pocketOfAcct(t.k);
@@ -2857,8 +2936,9 @@ function renderSheet(){
     else {
       var t = c.t, acct = accountOf(t.k), credit = t.amt > 0;
       var pick = payDraft.b;
-      var choices = BUCKETS.concat([['save','Savings']]).concat(credit ? [['in','Money in']] : []);
+      var choices = BUCKETS.concat([['save','Savings'], ['back','Paid back']]).concat(credit ? [['in','Money in']] : []);
       var whyNow = c.own ? 'Money between your own connected accounts: never counted.'
+        : c.b === 'back' ? (credit ? 'Someone paying back what was laid out: counts nowhere.' : 'Someone pays this back, so it counts nowhere.')
         : c.bounced ? 'This debit came back, so it counts nowhere and the bill is open again.'
         : c.reverses ? 'A debit coming back: the bank did not pay it. Counts nowhere.'
         : c.b === 'save' && c.src === 'auto' ? 'Looks like money put into savings: never counted. Pick a bucket if it was spending.'
@@ -2896,6 +2976,10 @@ function renderSheet(){
 
   else if (sheetKind === 'recur'){
     html = recurSheetHtml();
+  }
+
+  else if (sheetKind === 'clerk'){
+    html = clerkSheetHtml();
   }
 
   else if (sheetKind === 'changed'){
@@ -3133,7 +3217,7 @@ function render(){
   $('tabs').firstElementChild.innerHTML = PAGES.map(function(p){
     var here = ['month','debts','spends','bank','bills','payments'].indexOf(page) > -1 ? 'today' : (page === 'subs' ? cameFrom : page);
     return '<button data-go="' + p[0] + '" aria-current="' + (here === p[0] ? 'page' : 'false') + '">' +
-      p[1] + '<em' + ((p[0] === 'mother' && (toHear().length || toAnswer().length || recalcDue())) || (p[0] === 'tasks' && taskPings().length) ? ' class="call"' : '') + '></em></button>';
+      p[1] + '<em' + ((p[0] === 'mother' && (toHear().length || toAnswer().length || recalcDue() || clerkOpen().length)) || (p[0] === 'tasks' && taskPings().length) ? ' class="call"' : '') + '></em></button>';
   }).join('');
 
   var cur = model(S), base = model(BASE);
@@ -3147,7 +3231,7 @@ function render(){
   var fx = fixes();
   SFX.alert(page === 'today' && !!fx);
   $('t-hero').innerHTML = env ? todayHeroHtml(env) : oHero('By ' + lastLabel, fmt(cur.end));
-  $('t-act').innerHTML = whoHtml() + recalcRowHtml() + (recalcDue() ? '' : savingsAskHtml()) + motherRowHtml() + actRowHtml(fx) + watchAmbHtml() + alertsLine();
+  $('t-act').innerHTML = whoHtml() + recalcRowHtml() + (recalcDue() ? '' : savingsAskHtml()) + motherRowHtml() + clerkRowHtml() + actRowHtml(fx) + watchAmbHtml() + alertsLine();
   renderMother();
   $('t-cats').innerHTML = env ? everydayHtml(env) : '';
   $('t-bank').innerHTML = todayMoneyHtml(env);
@@ -3629,11 +3713,19 @@ function renderMother(){
   $('mo-head').innerHTML = '<p class="mo-l dim">Interface 2037</p><p class="mo-l">Ready for inquiry<span class="mo-cur"></span></p>' +
     (askErr ? '<p class="err" role="alert">' + esc(askErr) + '</p>' : '') +
     whoHtml() + recalcRowHtml() +
-    wait.map(function(x){ return oAmb(x.by + ' asks · answer', 'data-inq="' + esc(x.id) + '"'); }).join('');
+    wait.map(function(x){ return oAmb(x.by + ' asks · answer', 'data-inq="' + esc(x.id) + '"'); }).join('') +
+    clerkOpen().map(function(q){ return oAmb(q.text, 'data-clerk="' + esc(q.id) + '"'); }).join('');
   var list = ASKS.concat(Object.keys(RECALC).map(function(k){ return { rc: k, at: RECALC[k].at || '' }; }))
+    .concat(clerkQs().filter(function(q){ return q.status !== 'open'; }).map(function(q){ return { ck: q, at: q.doneAt || q.at }; }))
     .sort(function(x, y){ return x.at < y.at ? 1 : -1; });
   $('mo-list').innerHTML = oGrp('Log', list.length ? String(list.length) : '') + (list.length ? list.map(function(x){
     if (x.rc) return recalcLogHtml(x.rc, RECALC[x.rc]);
+    if (x.ck){
+      var ca = x.ck.chose !== null && x.ck.answers[x.ck.chose];
+      return '<button class="mo-q" type="button" data-clerk="' + esc(x.ck.id) + '">' +
+        '<span class="who">MOTHER · ' + esc(stamp(x.ck.at)) + '</span><span class="q">&gt; ' + esc(x.ck.text) + '</span>' +
+        '<span class="a">' + esc(x.ck.status === 'answered' && ca ? ca.label + (x.ck.by ? ' · ' + x.ck.by : '') : x.ck.status === 'left' ? 'Left as it was' : 'Changed by hand') + '</span></button>';
+    }
     var fresh = x.a && mine(x) && !heard(x.id);
     return '<button class="mo-q" type="button" data-inq="' + esc(x.id) + '">' +
       '<span class="who">' + esc(x.by) + ' · ' + esc(stamp(x.at)) + (fresh ? '<span class="new">new</span>' : '') + '</span>' +
@@ -4311,6 +4403,7 @@ function paymentsHeadHtml(){
   var chips = [['all','All']];
   if (classified().some(function(c){ return c.b === 'check' && !c.hidden; })) chips.push(['check','To sort']);
   chips = chips.concat(BUCKETS).concat([['save','To savings'],['in','Money in']]);
+  if (classified().some(function(c){ return c.b === 'back'; })) chips.push(['back','Paid back']);
   var html = '<h1 class="h1">Pay<i>ments</i></h1>' +
     (f.m !== null && inRange(f.m) ? '<p class="status">' + esc(PLAN.months[f.m].label) + ' only · <button class="textbtn" data-act="all-months">every month</button></p>' : '') +
     (bankMsg ? '<p class="msg">' + esc(bankMsg) + '</p>' : '') +
@@ -4442,6 +4535,12 @@ document.addEventListener('click', function(e){
     if (d.connect) return connectBank(d.connect, d.country);
     if (d.disconnect) return disconnectBank(d.disconnect);
     return;
+  }
+  var ckq = e.target.closest('[data-clerk],[data-clerka]');
+  if (ckq){
+    e.preventDefault();
+    if (ckq.dataset.clerk){ clerkId = ckq.dataset.clerk; clerkMsg = ''; return openSheet('clerk'); }
+    return clerkAnswer(ckq.dataset.clerka);
   }
   var rcr = e.target.closest('[data-recur],[data-recurb]');
   if (rcr){

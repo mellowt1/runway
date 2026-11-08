@@ -29,6 +29,11 @@
  *   POST   /api/bank/:code/disconnect  <- { conn }        ends the consent at the bank too
  *   POST   /api/tag/:code              <- { by, id, b, ns, hide, flag } | { by, payee, b } | { by, acct, pocket }
  *   POST   /api/watch/:code            <- { by, m, bills, pockets }   what the bills watch checks (watch.js)
+ *   POST   /api/clerk/:code            <- { by, rows }    how the page counts each payment (clerk.js)
+ *   POST   /api/clerk/:code/answer     <- { by, id, idx } answer one of the money clerk's questions
+ *   POST   /api/clerk/:code/run                           admin token: run the money clerk now
+ *
+ * GET /api/bank also carries `clerk`: the money clerk's questions (clerk.js).
  *
  * The bank routes need header X-Runway-Key. A cron syncs every code four times a day,
  * the most banks allow without the person present.
@@ -36,6 +41,7 @@
 
 import * as eb from './eb.js';
 import { checkWatch, handleWatch } from './watch.js';
+import { runClerk, handleClerk, handleClerkRun, publicClerk } from './clerk.js';
 
 const TTL = 400 * 24 * 3600;
 const KEEP_DAYS = 400;
@@ -47,7 +53,8 @@ const SYNC_COOLDOWN = 10 * 60 * 1000;
 const PIN_TRIES = 5;
 const PIN_LOCK = 24 * 3600 * 1000;
 const MAX_KEYS = 12;
-const BUCKETS = new Set(['bills', 'everyday', 'debt', 'oneoff', 'save', 'in']);
+// 'back': someone pays it back (or this is them paying it back); it counts nowhere.
+export const BUCKETS = new Set(['bills', 'everyday', 'debt', 'oneoff', 'save', 'in', 'back']);
 const BALANCE_PREF = ['ITAV', 'CLAV', 'XPCD', 'ITBD', 'CLBD', 'OPAV', 'PRCD', 'OTHR'];
 const APP = 'https://mellowt1.github.io/runway/';
 
@@ -444,6 +451,14 @@ export async function syncAll(env) {
       } catch (e) {
         console.log('sync failed', code, e && e.message);
       }
+      // The money clerk reads what this sync brought, from the cron only (a model call
+      // never holds up a phone's request).
+      try {
+        const r = await runClerk(env, code);
+        if (r && (r.error || r.stored)) console.log('clerk', code, JSON.stringify(r));
+      } catch (e) {
+        console.log('clerk failed', code, e && e.message);
+      }
     }
     cursor = page.list_complete ? null : page.cursor;
   } while (cursor);
@@ -652,38 +667,34 @@ export function payeeKey(s) {
     .join(' ');
 }
 
-async function handleTag(request, env, code, json) {
-  const body = await request.json().catch(() => null);
-  if (!body) return json({ error: 'body required' }, 400);
-  const by = clean(body.by, 24) || null;
-  const at = new Date().toISOString();
-  const key = `tags:${code}`;
-  const doc = (await read(env, key)) || { pay: {}, payee: {}, rev: 0 };
+/* One change to the tags doc, in place: a pocket link, a payee rule or one payment's
+ * tag. Returns null, or the reason it was refused. The page's own writes and the money
+ * clerk's answers both come through here. */
+export function applyTagChange(doc, body, by, at) {
   doc.pay = doc.pay || {};
   doc.payee = doc.payee || {};
   doc.acct = doc.acct || {};
-
   if (typeof body.acct === 'string') {
     // An account key (from publicMeta) and the plan's flex id it holds the money for.
-    if (!/^[0-9a-f]{10}$/.test(body.acct)) return json({ error: 'bad account' }, 400);
+    if (!/^[0-9a-f]{10}$/.test(body.acct)) return 'bad account';
     if (body.pocket === null) delete doc.acct[body.acct];
     else if (typeof body.pocket === 'string' && /^[a-z0-9]{1,16}$/.test(body.pocket)) {
       // One account per budget: linking a budget elsewhere unlinks it here.
       for (const k of Object.keys(doc.acct)) if (doc.acct[k].p === body.pocket) delete doc.acct[k];
       doc.acct[body.acct] = { p: body.pocket, by, at };
-    } else return json({ error: 'bad pocket' }, 400);
+    } else return 'bad pocket';
   } else if (typeof body.payee === 'string') {
     const p = payeeKey(body.payee);
-    if (!p) return json({ error: 'payee required' }, 400);
+    if (!p) return 'payee required';
     if (body.b === null) delete doc.payee[p];
     else if (BUCKETS.has(body.b)) doc.payee[p] = { b: body.b, by, at };
-    else return json({ error: 'bad bucket' }, 400);
+    else return 'bad bucket';
   } else if (typeof body.id === 'string' && /^[0-9a-f]{16}$/.test(body.id)) {
     const cur = { ...(doc.pay[body.id] || {}) };
     if ('b' in body) {
       if (body.b === null) delete cur.b;
       else if (BUCKETS.has(body.b)) cur.b = body.b;
-      else return json({ error: 'bad bucket' }, 400);
+      else return 'bad bucket';
     }
     for (const f of ['ns', 'hide', 'flag']) {
       if (f in body) {
@@ -696,9 +707,21 @@ async function handleTag(request, env, code, json) {
     if (Object.keys(cur).length) doc.pay[body.id] = { ...cur, by, at };
     else delete doc.pay[body.id];
   } else {
-    return json({ error: 'id or payee required' }, 400);
+    return 'id or payee required';
   }
-  if (Object.keys(doc.pay).length > 4000) return json({ error: 'too many tags' }, 413);
+  if (Object.keys(doc.pay).length > 4000) return 'too many tags';
+  return null;
+}
+
+async function handleTag(request, env, code, json) {
+  const body = await request.json().catch(() => null);
+  if (!body) return json({ error: 'body required' }, 400);
+  const by = clean(body.by, 24) || null;
+  const at = new Date().toISOString();
+  const key = `tags:${code}`;
+  const doc = (await read(env, key)) || { pay: {}, payee: {}, rev: 0 };
+  const err = applyTagChange(doc, body, by, at);
+  if (err) return json({ error: err }, err === 'too many tags' ? 413 : 400);
   doc.rev = (doc.rev || 0) + 1;
   await write(env, key, doc);
   return json({ ok: true, rev: doc.rev });
@@ -734,11 +757,18 @@ export async function bankRoutes(request, env, ctx, url, json) {
     return handleLock(request, env, code, json);
   }
 
+  if ((m = path.match(/^\/api\/clerk\/([a-z0-9]+)\/run$/i)) && request.method === 'POST') {
+    const code = codeOf(m);
+    if (!code) return json({ error: 'bad code' }, 400);
+    return handleClerkRun(request, env, code, json);
+  }
+
   const bank = path.match(/^\/api\/bank\/([a-z0-9]+)(?:\/(banks|connect|sync|disconnect))?$/i);
   const tag = path.match(/^\/api\/tag\/([a-z0-9]+)$/i);
   const wt = path.match(/^\/api\/watch\/([a-z0-9]+)$/i);
-  if (!bank && !tag && !wt) return null;
-  const code = codeOf(bank || tag || wt);
+  const ck = path.match(/^\/api\/clerk\/([a-z0-9]+)(?:\/(answer))?$/i);
+  if (!bank && !tag && !wt && !ck) return null;
+  const code = codeOf(bank || tag || wt || ck);
   if (!code) return json({ error: 'bad code' }, 400);
   if (!(await checkKey(env, code, request))) return json({ error: 'locked', locked: true }, 401);
 
@@ -747,19 +777,21 @@ export async function bankRoutes(request, env, ctx, url, json) {
     return handleTag(request, env, code, json);
   }
   if (wt) return handleWatch(request, env, code, json);
+  if (ck) return handleClerk(request, env, code, json, ck[2] || null);
   const action = bank[2];
   if (!action && request.method === 'GET') {
-    const [meta, tx, tags, months] = await Promise.all([
+    const [meta, tx, tags, months, clerk] = await Promise.all([
       read(env, `bank:${code}`),
       env.RUNWAY_KV.get(`banktx:${code}`),
       env.RUNWAY_KV.get(`tags:${code}`),
       env.RUNWAY_KV.get(`month:${code}`),
+      read(env, `clerk:${code}`),
     ]);
     // The transaction list goes out as stored text, unparsed: it is the big one.
     const pm = publicMeta(meta);
     const body = `{"conns":${JSON.stringify(pm.conns)},"synced":${JSON.stringify(pm.synced)},"rev":${pm.rev},"tx":${
       tx || '{"list":[],"rev":0}'
-    },"tags":${tags || '{"pay":{},"payee":{},"rev":0}'},"months":${months || '{"m":{},"rev":0}'}}`;
+    },"tags":${tags || '{"pay":{},"payee":{},"rev":0}'},"months":${months || '{"m":{},"rev":0}'},"clerk":${JSON.stringify(publicClerk(clerk))}}`;
     return json.raw(body);
   }
   if (action === 'banks' && request.method === 'GET') {

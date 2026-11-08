@@ -1,0 +1,10 @@
+{
+  "name": "runway",
+  "private": true,
+  "type": "module",
+  "description": "Runway: the page (index.html) and its Cloudflare Worker (worker/src). npx wrangler deploy bundles the Worker with these.",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "zod": "^4.6.5"
+  }
+}
