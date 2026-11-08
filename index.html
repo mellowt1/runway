@@ -1498,7 +1498,8 @@ function monthEnd(i){
     manual += Number(v.bal) + (v.confirmed ? -savingsMoves({ bank: pm.bank, asOf: b.last }, v.asOf)
       : savingsMoves({ bank: pm.bank, asOf: v.asOf || b.first }, b.last));
   });
-  return { real: cents(snap.conn + manual), at: snap.at, partial: !!snap.partial, confirmed: Object.keys(snap.manual || {}).some(function(k){ return snap.manual[k].confirmed; }) };
+  var late = txList().reduce(function(s, t){ return t.bd && t.d <= b.last && t.bd > b.last ? s + t.amt : s; }, 0);
+  return { real: cents(snap.conn + late + manual), at: snap.at, partial: !!snap.partial, confirmed: Object.keys(snap.manual || {}).some(function(k){ return snap.manual[k].confirmed; }) };
 }
 function planOnly(){ return !!(PLAN.forecast && PLAN.forecast.mode === 'plan'); }
 /* Plan against what is happening: the difference by the last month, and month by
@@ -1849,7 +1850,25 @@ async function pullBank(){
   return false;
 }
 
-function txList(){ return (BANK && BANK.tx && BANK.tx.list) || []; }
+/* A card payment is booked a day or three after it was made (a Saturday's shopping lands
+   on Monday). The bank's text carries the day it was made, dd.mm.yy/hh:mm; that is the
+   day it counts on, so it falls in the month it was spent. bd keeps the booking day. */
+var CARD_DAY = /(?:^|[ ,])(\d{2})\.(\d{2})\.(\d{2})\/\d{2}[.:]\d{2}/, txMemo = { src:null, list:[] };
+function cardDay(t){
+  if (!(t.amt < 0) || t.own) return null;
+  var m = String(t.desc || '').match(CARD_DAY);
+  if (!m) return null;
+  var d = '20' + m[3] + '-' + m[2] + '-' + m[1], gap = daysFrom(d, t.d);
+  return gap > 0 && gap <= 7 ? d : null;
+}
+function txList(){
+  var src = (BANK && BANK.tx && BANK.tx.list) || [];
+  if (txMemo.src !== src) txMemo = { src: src, list: src.map(function(t){
+    var d = cardDay(t);
+    return d ? Object.assign({}, t, { d: d, bd: t.d }) : t;
+  }) };
+  return txMemo.list;
+}
 function tags(){ return (BANK && BANK.tags) || { pay:{}, payee:{} }; }
 
 /* Same normalising as the Worker's payeeKey: lower case, letters only, and for a
@@ -1922,6 +1941,10 @@ function amountMatch(out){
   });
   return best;
 }
+function fromOther(words){
+  var w = normText(PLAN.people && PLAN.people.other)[0];
+  return !!w && (' ' + words + ' ').indexOf(' ' + w + ' ') > -1;
+}
 function classify(t){
   var tg = tags(), tag = tg.pay[t.id] || {}, rule = tg.payee[payeeKey(payeeOf(t))] || null;
   var c = { t:t, tag:tag, rule:rule, hidden: !!tag.hide, ns: !!(tag.ns || t.own), own: !!t.own, flag: !!tag.flag };
@@ -1934,6 +1957,8 @@ function classify(t){
     /* A Tikkie paid to him is someone paying back their share of a dinner or a round:
        it comes off everyday spending, like a refund. */
     else if (t.amt > 0 && TIKKIE_IN.test(words)){ c.b = 'everyday'; c.src = 'auto'; }
+    /* So is a small amount from the other person (the top-up is far bigger). */
+    else if (t.amt > 0 && t.amt < 100 && fromOther(words)){ c.b = 'everyday'; c.src = 'auto'; }
     else if (t.amt > 0){ c.b = 'in'; c.src = 'auto'; }
     else {
       var m = matchers().filter(function(x){
@@ -3720,7 +3745,7 @@ function todayMoneyHtml(env){
   if (hasBank()){
     var total = inTheBank(), warn = BANK.conns.some(function(c){ return consentNote(c).warn; });
     var fresh = classified().filter(isNew).length;
-    var toSort = classified().filter(function(c){ return c.b === 'check' && !c.hidden; }).length;
+    var toSort = classified().filter(function(c){ return c.b === 'check' && !c.hidden && c.t.d >= PLAN.asOf; }).length;
     var monthN = env ? bankIn(env.index).filter(function(c){ return !c.hidden; }).length : 0;
     html += oRow('In the bank', total === null ? '—' : fmt(total), 'data-go="bank"', warn ? 'over' : '');
     var W = watch();
