@@ -1230,9 +1230,13 @@ function watch(){
       x.now = { amt: cents(lf.full), ym: lf.ym };
   });
 
-  /* Accounts too low for what is due from them in the next three days. */
+  /* Accounts too low for what is due from them in the next ten days: time enough to move
+     the money over from savings. */
   var byK = {};
-  items.forEach(function(x){ if (x.soon && x.k) (byK[x.k] = byK[x.k] || []).push(x); });
+  items.forEach(function(x){
+    var d = x.due && !x.done ? daysFrom(day, x.due) : -1;
+    if (d >= 0 && d <= 10 && x.k) (byK[x.k] = byK[x.k] || []).push(x);
+  });
   var short = Object.keys(byK).map(function(k){
     var a = accountOf(k), due = byK[k], need = cents(due.reduce(function(t, x){ return t + x.left; }, 0));
     if (!a || a.a.bal === null || a.a.bal === undefined || a.a.bal >= need) return null;
