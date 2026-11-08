@@ -23,7 +23,7 @@
 :root{
   --ground:#07130c; --ink:#a8e6a1; --ink-2:#98d192; --muted:#6e9a6b; --rule:#223524;
   --press:#0f2416; --green:#e2f7de; --over:#eeb868; --on-ink:#07130c;
-  --glow:rgba(168,230,161,.3);
+  --glow:rgba(168,230,161,.3); --alarm:#ff6a55;
   --serif:"VT323",ui-monospace,Menlo,monospace;
   --sans:"Share Tech Mono",ui-monospace,Menlo,monospace;
   color-scheme:dark;
@@ -125,6 +125,33 @@ button.row:hover b{font-style:italic}
 .daily .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
 .daily svg{display:block;width:100%;overflow:visible}
 .daily text{font-family:var(--sans)}
+
+/* NAV: the Nostromo's navigation screen on Forecast. Each month is a gate on the
+   course; the last month is the planet. Kept to the plan, the planet sits in the
+   reticle; behind it, the ship drifts and the planet slides out, amber, then red. */
+.nav{display:block;width:100%;margin-top:18px;padding:0;border:2px solid var(--rule);border-radius:0;background:#020a05;
+  color:var(--ink);font:inherit;text-align:left;text-transform:uppercase}
+.nav canvas{display:block;width:100%;height:232px}
+.nav-st{display:flex;flex-direction:column;gap:3px;padding:10px 12px 9px;border-top:2px solid var(--rule)}
+.nav-k{font:400 32px/1 var(--serif);letter-spacing:.03em}
+.nav-d{display:flex;justify-content:space-between;gap:10px;font:400 13px/1.3 var(--sans);letter-spacing:.1em;color:var(--muted)}
+.nav-rt{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border-top:1px solid var(--rule)}
+.nav-rt > span{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0 8px;border-left:1px solid var(--rule);
+  font:400 11px var(--sans);letter-spacing:.08em;color:var(--muted)}
+.nav-rt > span:first-child{border-left:0}
+.nav-rt b{font:400 18px/1 var(--serif);font-weight:400}
+.nav-rt .ok{color:var(--ink)}
+.nav-rt .now{color:var(--green);background:var(--press)}
+.nav-rt .bad{color:var(--over)}
+.nav.dev{border-color:var(--over)}
+.nav.dev .nav-k,.nav.dev .nav-d{color:var(--over)}
+.nav.off{border-color:var(--alarm)}
+.nav.off .nav-k,.nav.off .nav-d{color:var(--alarm);text-shadow:0 0 8px rgba(255,106,85,.45)}
+@media (prefers-reduced-motion:no-preference){
+  .nav-rt .now b{animation:navblink 1.1s steps(1) infinite}
+  .nav.off .nav-k{animation:navblink .9s steps(1) infinite}
+  @keyframes navblink{50%{opacity:.2}}
+}
 
 /* forecast bars */
 .fc{margin-top:22px}
@@ -678,6 +705,11 @@ details p{font:400 21px/1.2 var(--serif)}
       <button class="o-key" data-sheet="adjust">Adjust</button>
     </div>
     <div id="f-hero"></div>
+    <button class="nav" id="f-nav" type="button" data-sheet="track" hidden>
+      <canvas id="nav-cv" aria-hidden="true"></canvas>
+      <span class="nav-st" id="nav-st"></span>
+      <span class="nav-rt" id="nav-rt" aria-hidden="true"></span>
+    </button>
     <div id="f-chart"></div>
     <div id="f-grid"></div>
   </section>
@@ -2244,6 +2276,284 @@ function forecastBarsHtml(M, R){
   }).join('') + '</div>';
 }
 
+/* ─────────────────────────── nav ───────────────────────────
+   The Forecast as the Nostromo's navigation screen. The plan is a course with a
+   gate at the end of every month and the last month as the planet; the ship is
+   where today falls, so every month the planet comes closer. Spending kept to the
+   plan holds the planet in the reticle (On course); falling behind turns the ship
+   off it, by more the further behind (amber Course deviation, then red Off course
+   once it is €1,000 or more, or a month would go below zero that the plan keeps
+   above). The route under it marks every closed month kept (■) or lost (▲). */
+function navData(tk){
+  if (!tk || !tk.plan.M.length) return null;
+  var P = tk.plan.M, R = tk.real.M, n = P.length, ci = monthIndexOf(todayStr()) - 1, pos;
+  if (ci < 0) pos = 0;
+  else if (ci >= n) pos = n;
+  else {
+    var b = monthBounds(ci + 1), len = daysFrom(b.first, b.last) + 1;
+    pos = ci + (daysFrom(b.first, todayStr()) + 0.5) / len;
+  }
+  var prev = 0, cells = P.map(function(m, j){
+    var g = cents((R[j] ? R[j].bal : m.bal) - m.bal), dl = g - prev, lost = dl <= -25;
+    prev = g;
+    return { key: m.key,
+      cls: j < ci ? (lost ? 'bad' : 'ok') : j === ci ? 'now' + (lost ? ' bad' : '') : '',
+      mark: j < ci ? (lost ? '▲' : '■') : j === ci ? '▸' : j === n - 1 ? '○' : '·' };
+  });
+  var newDip = R.some(function(m, j){ return m.bal < 0 && P[j] && P[j].bal >= 0; });
+  var sev = tk.state !== 'behind' ? 'on' : (tk.gap <= -1000 || newDip) ? 'off' : 'dev';
+  return { p: pos / n, n: n, ci: ci, sev: sev, gap: tk.gap, ahead: tk.state === 'ahead', cells: cells,
+    left: Math.max(0, n - pos), dest: P[n - 1].key, keys: P.map(function(m){ return m.key; }),
+    dev: sev === 'on' ? 0 : Math.max(0.22, Math.pow(Math.min(1, -tk.gap / 1500), 0.6)) };
+}
+function navPaint(nd){
+  var box = $('f-nav');
+  box.hidden = !nd;
+  if (!nd) return;
+  box.className = 'nav' + (nd.sev === 'on' ? '' : ' ' + nd.sev);
+  var there = nd.p >= 1;
+  var k = nd.sev === 'on' ? (there ? '■ Arrived' : '■ On course') : nd.sev === 'dev' ? '▲ Course deviation' : '▲ Off course';
+  var d = nd.sev === 'on' ? (nd.ahead ? fmt(nd.gap) + ' ahead of the plan' : 'Target locked · on the plan')
+    : fmt(-nd.gap) + ' behind the plan';
+  $('nav-st').innerHTML = '<span class="nav-k">' + esc(k) + '</span><span class="nav-d"><span>' + esc(d) + '</span><span>Why ›</span></span>';
+  $('nav-rt').innerHTML = nd.cells.map(function(c){
+    return '<span' + (c.cls ? ' class="' + c.cls + '"' : '') + '><b>' + c.mark + '</b>' + esc(c.key) + '</span>';
+  }).join('');
+  box.setAttribute('aria-label', k.slice(2) + '. ' + d + '. ' + (there ? '' : nd.left.toFixed(1) + ' months to ' + nd.dest + '.'));
+  NAV.set(nd);
+}
+
+var NAV = (function(){
+  var cv = null, g = null, W = 0, H = 0, dpr = 1, raf = 0, st = null, t0 = -1e9, lastF = 0, sounded = true;
+  var calm = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var C = { ink:'#a8e6a1', hi:'#e2f7de', dim:'#6e9a6b', deep:'#1d3a24', amb:'#eeb868', red:'#ff6a55', bg:'#020a05' };
+  var DEPTH = 8, NEAR = 2.2, EXTRA = 1.4, GATE_W = 0.34, GATE_H = 0.5;
+  var CLIMB = [[700, 4], [830, 3], [960, 1], [1090, 0]], FALL = [[1400, 1], [1600, 3], [1800, 4]], cued = 0;
+  var stars = [];
+  for (var i = 0; i < 64; i++) stars.push([Math.random(), Math.random(), 0.25 + Math.random() * 0.75]);
+
+  function courseX(z){ return 0.42 * Math.sin(z * 3.4 + 0.5) * (1 - z * 0.35); }
+  function clamp(v){ return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function ease(v){ v = clamp(v); return 1 - Math.pow(1 - v, 3); }
+  function rgba(hex, a){
+    var n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+
+  function size(){
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return false;
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (w !== W || h !== H || cv.width !== Math.round(w * dpr)){
+      W = w; H = h; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    return true;
+  }
+
+  function draw(now){
+    if (!g || !st || !size()) return;
+    var T = calm ? 1e9 : now - t0, t = now / 1000;
+    var accent = st.sev === 'on' ? C.ink : st.sev === 'dev' ? C.amb : C.red;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+
+    /* The camera: the ship at today's point on the course, flying the month so far
+       in as the screen comes up; heading on the planet, turned off it by the gap. */
+    var e1 = ease(T / 1500), zs = st.p, zFrom = Math.max(0, zs - 1 / st.n);
+    zs = zFrom + (zs - zFrom) * e1;
+    var dev = st.dev * ease((T - 1100) / 900);
+    var hy = Math.round(H * 0.4), f = W * 0.5, camH = (H - hy) / f;
+    var zP = 1 + EXTRA / DEPTH, camX = courseX(zs), dP = Math.max(0.6, (zP - zs) * DEPTH);
+    var aim = (courseX(zP) - camX) / (dP / NEAR + 1) - dev * 0.62;
+    function at(x, z, y){
+      var d = (z - zs) * DEPTH;
+      if (d < -0.4) return null;
+      var k = f / (d / NEAR + 1);
+      return [W / 2 + (x - camX) * k - aim * f, hy + (camH - (y || 0)) * k, k];
+    }
+
+    /* Stars, drifting the other way as the ship turns. */
+    var fade = ease(T / 500);
+    stars.forEach(function(s){
+      var x = ((s[0] * W * 1.4 - aim * f * 0.35 - t * 2 * s[2]) % (W * 1.4) + W * 1.4) % (W * 1.4) - W * 0.2, y = s[1] * (hy - 4);
+      g.fillStyle = rgba(C.ink, 0.18 + 0.5 * s[2] * fade);
+      g.fillRect(x, y, s[2] > 0.8 ? 1.6 : 1, s[2] > 0.8 ? 1.6 : 1);
+    });
+
+    /* The planet: the plan's last month, closer every month. */
+    /* Its size is the progress itself: small at the start, filling the sky by the end. */
+    var pp = at(courseX(zP), zP, 0), pr = Math.min(H * 0.3, 12 + 62 * Math.pow(zs, 1.3));
+    var pcx = pp[0], pcy = Math.max(pr + 18, hy - pr * 0.42);
+    g.save();
+    g.shadowColor = rgba(C.ink, 0.5); g.shadowBlur = 8;
+    g.fillStyle = C.bg; g.strokeStyle = rgba(C.ink, 0.95 * fade); g.lineWidth = 1.3;
+    g.beginPath(); g.arc(pcx, pcy, pr, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.shadowBlur = 0; g.lineWidth = 1; g.strokeStyle = rgba(C.ink, 0.45 * fade);
+    [-0.6, -0.25, 0.12, 0.5].forEach(function(lat){
+      var yy = pcy + lat * pr, rx = pr * Math.sqrt(1 - lat * lat);
+      g.beginPath(); g.ellipse(pcx, yy, rx, rx * 0.16, 0, 0, Math.PI * 2); g.stroke();
+    });
+    var spin = calm ? 0.4 : t * 0.25;
+    for (var li = 0; li < 4; li++){
+      var ph = (spin + li * Math.PI / 4) % Math.PI, rxl = Math.abs(Math.cos(ph)) * pr;
+      g.beginPath(); g.ellipse(pcx, pcy, Math.max(0.5, rxl), pr, 0, 0, Math.PI * 2); g.stroke();
+    }
+    g.restore();
+    g.fillStyle = rgba(C.ink, 0.9 * fade); g.font = '12px "Share Tech Mono", monospace'; g.textAlign = 'center';
+    g.fillText(st.dest.toUpperCase(), pcx, Math.max(12, pcy - pr - 7));
+
+    g.fillStyle = C.bg; g.fillRect(0, hy, W, H - hy);
+
+    /* The ground grid, scrolling under the ship. */
+    g.save();
+    g.beginPath(); g.rect(0, hy, W, H - hy); g.clip();
+    var grad = g.createLinearGradient(0, hy, 0, H);
+    grad.addColorStop(0, rgba(C.ink, 0)); grad.addColorStop(1, rgba(C.ink, 0.32 * fade));
+    g.strokeStyle = grad; g.lineWidth = 1; g.beginPath();
+    var gx0 = Math.floor(camX / 0.5) * 0.5;
+    for (var gi = -14; gi <= 14; gi++){
+      var a = at(gx0 + gi * 0.5, zs, 0), b = at(gx0 + gi * 0.5, zs + 3 / DEPTH * 4, 0);
+      if (a && b){ g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
+    }
+    var step = 0.7, off = calm ? 0 : (t * 0.55) % step;
+    for (var dz = step - off; dz < DEPTH * 1.3; dz += step){
+      var l = at(camX - 12, zs + dz / DEPTH, 0), r = at(camX + 12, zs + dz / DEPTH, 0);
+      if (l && r){ g.moveTo(l[0], l[1]); g.lineTo(r[0], r[1]); }
+    }
+    g.stroke();
+    g.restore();
+    g.strokeStyle = rgba(C.ink, 0.35 * fade); g.beginPath(); g.moveTo(0, hy + 0.5); g.lineTo(W, hy + 0.5); g.stroke();
+
+    var drawn = ease((T - 150) / 1000), pts = [], zEnd = zs + (zP - zs) * drawn;
+    for (var ci = 0; ci <= 48; ci++){
+      var zz = zs + (zEnd - zs) * ci / 48, q = at(courseX(zz), zz, 0);
+      if (q) pts.push(q);
+    }
+    if (pts.length > 1){
+      g.save();
+      g.shadowColor = rgba(C.ink, 0.6); g.shadowBlur = 6;
+      g.strokeStyle = rgba(C.ink, 0.85); g.lineWidth = 1.6;
+      g.setLineDash([7, 6]); g.lineDashOffset = calm ? 0 : -t * 18;
+      g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+      pts.forEach(function(q){ g.lineTo(q[0], q[1]); });
+      g.stroke();
+      g.restore();
+    }
+
+    /* A gate at the end of this month and the next; further months are ticks on the course. */
+    g.font = '11px "Share Tech Mono", monospace'; g.textAlign = 'center';
+    for (var j = st.n - 1; j >= 0; j--){
+      var zg = (j + 1) / st.n, dg = (zg - zs) * DEPTH;
+      if (dg < 0.2 || (zg > zEnd + 0.001)) continue;
+      var xg = courseX(zg), a1 = at(xg - GATE_W, zg, 0), a2 = at(xg - GATE_W, zg, GATE_H),
+          a3 = at(xg + GATE_W, zg, GATE_H), a4 = at(xg + GATE_W, zg, 0);
+      var near = j === st.ci, al = Math.max(0.25, Math.min(1, 1.6 / (dg * 0.35 + 1))) * fade;
+      if (dg > 2.4){
+        var tk0 = at(xg - 0.12, zg, 0), tk1 = at(xg + 0.12, zg, 0);
+        g.strokeStyle = rgba(C.ink, 0.6 * fade); g.lineWidth = 1.4;
+        g.beginPath(); g.moveTo(tk0[0], tk0[1]); g.lineTo(tk1[0], tk1[1]); g.stroke();
+        continue;
+      }
+      g.strokeStyle = rgba(near ? C.hi : C.ink, al); g.lineWidth = near ? 1.6 : 1.1;
+      g.beginPath(); g.moveTo(a1[0], a1[1]); g.lineTo(a2[0], a2[1]); g.lineTo(a3[0], a3[1]); g.lineTo(a4[0], a4[1]); g.stroke();
+      if (j < st.n - 1){
+        g.fillStyle = rgba(near ? C.hi : C.ink, al);
+        g.fillText(st.keys[j].toUpperCase(), (a2[0] + a3[0]) / 2, a2[1] - 4);
+      }
+    }
+
+    /* The ship's heading, straight ahead, when it is off the course. */
+    if (st.dev){
+      var hd = ease((T - 1100) / 900);
+      g.save();
+      g.strokeStyle = rgba(accent, 0.75); g.lineWidth = 1.3; g.setLineDash([3, 4]);
+      g.beginPath(); g.moveTo(W / 2, H); g.lineTo(W / 2, H - (H - hy + 6) * hd); g.stroke();
+      g.restore();
+    }
+
+    /* The reticle: closes in and locks on the planet, or holds the heading while
+       the planet slides out of it. */
+    var e3 = ease((T - 600) / 700), lock = st.sev === 'on';
+    var rs = Math.max(pr + 9, 18), half = rs + (70 - rs) * (1 - e3), rcx = W / 2, rcy = pcy, arm = Math.min(10, half * 0.4);
+    g.save();
+    g.strokeStyle = e3 < 1 ? rgba(C.ink, 0.7) : accent; g.lineWidth = 1.6;
+    g.shadowColor = rgba(e3 < 1 ? C.ink : accent, 0.6); g.shadowBlur = 6;
+    [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(function(s){
+      var x = rcx + s[0] * half, y = rcy + s[1] * half;
+      g.beginPath(); g.moveTo(x, y - s[1] * arm); g.lineTo(x, y); g.lineTo(x - s[0] * arm, y); g.stroke();
+    });
+    g.restore();
+    var done = T > (lock ? 1300 : 2000);
+    g.font = '11px "Share Tech Mono", monospace'; g.textAlign = 'right';
+    if (!done){
+      if ((T / 260 | 0) % 2) { g.fillStyle = rgba(C.ink, 0.8); g.fillText('COMPUTING', rcx - half - 8, rcy + 4); }
+    } else if (lock){
+      g.fillStyle = C.ink; g.fillText(st.p >= 1 ? 'ARRIVED' : 'LOCKED', rcx - half - 8, rcy + 4);
+    } else {
+      /* The miss: a line from the heading to the planet, the gap on it. */
+      g.save();
+      g.strokeStyle = rgba(accent, 0.8); g.lineWidth = 1; g.setLineDash([2, 3]);
+      g.beginPath(); g.moveTo(rcx, rcy); g.lineTo(pcx, pcy); g.stroke();
+      g.restore();
+      var blink = st.sev === 'off' && !calm ? (t * 1.1 | 0) % 2 === 0 : true;
+      if (blink){
+        g.fillStyle = accent;
+        g.fillText(st.sev === 'off' ? 'OFF COURSE' : 'DEVIATION', rcx - half - 8, rcy + 4);
+      }
+    }
+
+    /* Telemetry in the corners. */
+    g.font = '10px "Share Tech Mono", monospace'; g.fillStyle = rgba(C.dim, 1);
+    g.textAlign = 'left';
+    g.fillText('NAV · COURSE ' + st.dest.toUpperCase(), 8, 14);
+    g.fillText(st.p >= 1 ? 'DIST 0' : 'DIST ' + st.left.toFixed(1) + ' MO', 8, H - 8);
+    g.textAlign = 'right';
+    g.fillText('SPENDING VS PLAN', W - 8, 14);
+    g.fillStyle = st.sev === 'on' ? rgba(C.dim, 1) : accent;
+    g.fillText(st.sev === 'on' ? (st.ahead ? 'Δ +' + fmt(st.gap) : 'Δ 0') : 'Δ −' + fmt(-st.gap), W - 8, H - 8);
+
+    /* A slow refresh band down the screen. */
+    if (!calm){
+      var by = ((t % 5) / 5) * (H + 60) - 30, band = g.createLinearGradient(0, by - 30, 0, by + 30);
+      band.addColorStop(0, rgba(C.ink, 0)); band.addColorStop(0.5, rgba(C.ink, 0.05)); band.addColorStop(1, rgba(C.ink, 0));
+      g.fillStyle = band; g.fillRect(0, by - 30, W, 60);
+    }
+
+    /* Heard in step with it, all from the film's computer: the reticle closing in
+       climbs the interface tones (bed, rung, beep, high beep); locked, the kept
+       chirp. Off the course they fall back down as the planet slides away, then the
+       refused buzz, or the warning tone when it is off course. */
+    if (!sounded){
+      var cues = calm ? [] : CLIMB.concat(lock ? [] : FALL);
+      while (cued < cues.length && T >= cues[cued][0]) SFX.digit(String(cues[cued++][1]));
+      if (done){
+        sounded = true;
+        if (lock) SFX.ok(); else if (st.sev === 'dev') SFX.no(); else SFX.warn();
+      }
+    }
+  }
+
+  function live(){ return cv && cv.isConnected && !document.hidden && page === 'forecast' && st; }
+  function loop(now){
+    raf = 0;
+    if (!live()) return;
+    if (now - lastF >= 32){ lastF = now; draw(now); }
+    if (!calm) raf = requestAnimationFrame(loop);
+  }
+  function kick(){
+    if (!cv){ cv = $('nav-cv'); g = cv && cv.getContext('2d'); }
+    if (!g) return;
+    if (calm){ if (live()) draw(performance.now()); return; }
+    if (!raf && live()) raf = requestAnimationFrame(loop);
+  }
+  document.addEventListener('visibilitychange', kick);
+  window.addEventListener('resize', function(){ if (calm) kick(); });
+  return {
+    set: function(s){ st = s; kick(); },
+    play: function(){ t0 = performance.now(); sounded = false; cued = 0; kick(); }
+  };
+})();
+
 /* ─────────────────────────── sound ───────────────────────────
    MU-TH-UR's voice. The first tap boots her (the Nostromo boot sequence); the
    room hum under everything has its own switch and starts off. A screen coming
@@ -2512,6 +2822,12 @@ var SFX = (function(){
     alerted = true; store.set('runway-alerted', todayStr());
     clip('alert', Math.max(now() + 0.005, last));
   }
+  /* Off course on the nav: the warning tone, every time the screen comes up. */
+  function warn(){
+    if (!wake()) return;
+    hold = now() + 0.6;
+    if (!clip('alert', Math.max(now() + 0.005, last))) no();
+  }
   /* "Back to the plan": a burst of data, the slate wiped. */
   function wipe(){
     if (!wake()) return;
@@ -2546,7 +2862,7 @@ var SFX = (function(){
   }
   function arm(){ armed = true; }
   return { arm:arm, chatter:chatter, readout:readout, key:key, ok:ok, no:no, close:close, erase:erase, sync:sync, incoming:incoming,
-    alert:alert, compute:readout, wipe:wipe, tick:tick, digit:digit, set:set, setHum:setHum, paint:paint,
+    alert:alert, warn:warn, compute:readout, wipe:wipe, tick:tick, digit:digit, set:set, setHum:setHum, paint:paint,
     isOn:function(){ return on; }, isHum:function(){ return humOn; } };
 })();
 
@@ -2558,7 +2874,7 @@ var SFX = (function(){
    tap) simply shows the full text. Skipped under reduced motion. */
 var TYPE = (function(){
   var SEL = '.word, .h1, h2, .eyebrow, .fig-xl, .fig, .deck, .stats .v, .fc-r .m, .fc-r .v, .o-eb, .o-big, .o-line, .o-grp > span, ' +
-    '.mo-l, .mo-q .who, .mo-q .q, .mo-q .a, .mo-q .w, .o-row > span:not(.lead), .o-row .top > span:not(.lead), .o-open > span:not(.lead), .o-amb > span:not(.lead)';
+    '.mo-l, .mo-q .who, .mo-q .q, .mo-q .a, .mo-q .w, .o-row > span:not(.lead), .o-row .top > span:not(.lead), .o-open > span:not(.lead), .o-amb > span:not(.lead), .nav-k, .nav-d > span';
   var job = 0, live = [], cur = null;
   function finish(){
     live.forEach(function(p){ p.node.data = p.full; if (p.rest.parentNode) p.rest.parentNode.removeChild(p.rest); });
@@ -3192,6 +3508,7 @@ function go(p, pushState){
   if (pushState && location.hash !== '#' + p) history.pushState(null, '', '#' + p);
   window.scrollTo(0,0);
   render();
+  if (arriving && p === 'forecast') NAV.play();
   if (arriving) TYPE.run($('s-' + p));
   if (p === 'mother') motherCheck();
   recalcCheck();
@@ -3249,9 +3566,11 @@ function render(){
   /* Forecast */
   var below = d ? cur.M.slice(d.lo, d.hi + 1).filter(function(m){ return m.bal < 0; }).map(function(m){ return m.key; }) : [];
   var tk = onTrack();
+  var nd = navData(tk);
   $('f-hero').innerHTML = oHero('Left · end of ' + lastLabel, fmt(cur.end), 'A month costs ' + fmt(cur.monthly)) +
-    trackLineHtml(tk) +
+    (nd ? '' : trackLineHtml(tk)) +
     (below.length ? oAmb(below.join(' + ') + ' below zero', 'data-sheet="fix"') : '');
+  navPaint(nd);
   $('f-chart').innerHTML = oGrp(tk ? 'Month end · the plan' : 'End of each month', tk && tk.state !== 'on' ? 'Now' : '') +
     forecastBarsHtml(cur.M, tk && tk.state !== 'on' ? tk.real.M : null);
   var salaryFrom = monthLabel(PLAN.salary.from);
