@@ -1776,10 +1776,22 @@ function matchers(){
 /* Money put aside is not spending: an ABN spaarrekening, Direct Sparen, a Revolut
    vault or pocket. Matched on the payee and the description, whole words. */
 var SAVINGS = /(^| )(spaar[a-z]*|sparen|direct sparen|savings?|vaults?|pockets?|deposito|vermogen[a-z]*)( |$)/;
+/* A hand-entered savings account can name its IBAN (`bank.manual[].iban`): money moved
+   to or from it is savings whatever the bank calls it. ABN names the way back from
+   savings after the owner, not "Direct Savings", so without this it read as money in,
+   and the month-end check missed what left savings on the 1st to 3rd. */
+function toSavingsAcct(t){
+  var desc = String(t.desc || '').replace(/\s+/g, '').toUpperCase();
+  return ((PLAN.bank && PLAN.bank.manual) || []).some(function(m){
+    var ib = String(m.iban || '').replace(/\s+/g, '').toUpperCase();
+    return ib.length >= 8 && desc.indexOf(ib) > -1;
+  });
+}
 /* A payment this big that nothing recognises is not everyday spending until someone
    says so: it waits in To sort and counts nowhere. */
 /* Cash out of a machine: ABN writes GEA or Geldautomaat, Revolut "Cash withdrawal". */
 var ATM = /(^| )(gea|geldautomaat|geldopname|atm|cash withdrawal)( |$)/;
+var TIKKIE_IN = /(^| )(aab inz tikkie|tikkie)( |$)/;
 function bigAmount(){ return (PLAN.bank && PLAN.bank.big) || 500; }
 
 /* A bill whose payee the bank names differently is still the bill when the amount is
@@ -1806,7 +1818,10 @@ function classify(t){
   else {
     var words = normText(t.who + ' ' + (t.desc || '')).join(' ');
     var hay = ' ' + words + ' ';
-    if (SAVINGS.test(words)){ c.b = 'save'; c.src = 'auto'; c.ns = true; }
+    if (SAVINGS.test(words) || toSavingsAcct(t)){ c.b = 'save'; c.src = 'auto'; c.ns = true; }
+    /* A Tikkie paid to him is someone paying back their share of a dinner or a round:
+       it comes off everyday spending, like a refund. */
+    else if (t.amt > 0 && TIKKIE_IN.test(words)){ c.b = 'everyday'; c.src = 'auto'; }
     else if (t.amt > 0){ c.b = 'in'; c.src = 'auto'; }
     else {
       var m = matchers().filter(function(x){
