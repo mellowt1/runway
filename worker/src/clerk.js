@@ -44,8 +44,11 @@ import { applyTagChange, payeeKey, BUCKETS } from './bank.js';
 
 export const MODEL = 'claude-opus-5-5';
 const TTL = 400 * 24 * 3600;
-const WINDOW_DAYS = 45;      // the first run reads this far back, no further
-const MAX_ROWS = 120;        // the most payments one run reads; the rest wait for the next
+// Widened 2026-11-08 (the owner's first API month cost little): the bank's whole 90 days, more
+// payments a run and more of each payee's history. A run is still well under $0.50.
+const WINDOW_DAYS = 90;      // the first run reads this far back, no further
+const MAX_ROWS = 200;        // the most payments one run reads; the rest wait for the next
+const EARLIER = 6;           // the payee's other payments shown with each one
 const MAX_QUESTIONS = 5;
 const MIN_GAP_MS = 2 * 3600e3;
 const SMALL = 10;            // everyday card payments under this are not worth a question
@@ -235,19 +238,20 @@ export async function runClerk(env, code, { now = new Date(), force = false } = 
     return { skipped: 'nothing new', quiet: quiet.length };
   }
 
-  // Up to three earlier payments to each payee, so a pattern is visible.
+  // Up to EARLIER of the payee's other payments, newest first, so a pattern is visible.
   const byPayee = new Map();
   for (const t of list) {
     const pk = payeeKey(t.who || t.desc || '');
     if (!pk) continue;
     const arr = byPayee.get(pk) || [];
-    if (arr.length < 4) arr.push(t);
+    arr.push(t);
     byPayee.set(pk, arr);
   }
+  for (const arr of byPayee.values()) arr.sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : 0));
   const shown = new Map(batch.map((x) => [x.t.id, x]));
   const payments = batch.map(({ t, cls }) => {
     const pk = payeeKey(t.who || t.desc || '');
-    const earlier = (byPayee.get(pk) || []).filter((o) => o.id !== t.id).slice(0, 3)
+    const earlier = (byPayee.get(pk) || []).filter((o) => o.id !== t.id).slice(0, EARLIER)
       .map((o) => ({ date: o.d, amount: o.amt, counted_as: (rows[o.id] || [])[0] || null }));
     return {
       id: t.id, date: t.d, amount: t.amt, payee: clean(t.who, 60), description: clean(t.desc, 140),
