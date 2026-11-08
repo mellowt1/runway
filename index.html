@@ -730,6 +730,14 @@ details p{font:400 21px/1.2 var(--serif)}
     <div id="b-body"></div>
   </section>
 
+  <section class="screen" id="s-bills" hidden>
+    <div class="o-top">
+      <button class="o-key" data-go="today">‹ Today</button>
+      <span class="o-eb">Bills</span>
+    </div>
+    <div id="bl-body"></div>
+  </section>
+
   <section class="screen" id="s-payments" hidden>
     <div class="mast">
       <button class="back" data-go="today">‹ Today</button>
@@ -1071,34 +1079,282 @@ function restOfMonth(i, st, subsT){
    only the plan items whose payee it names, so a card bill or an unplanned debt payment
    never makes a loan look paid. A payment someone put in a bucket by hand and that
    names no item pays that bucket's items instead. */
-function stillToCome(i, st, list){
-  var key = PLAN.months[i].key, plan = [];
-  function add(x, b, amount){ plan.push({ b:b, left:amount, terms: itemTerms(x), name: x.name || 'Gemeente' }); }
-  /* Order matters when one payee pays two items: a named one-off (the October Amex
-     bill) first, the monthly items next, the gemeente's lump sum after its monthly part. */
-  (PLAN.oneOffs || []).forEach(function(o){ if (o.month === key && o.amount < 0) add(o, 'oneoff', -o.amount); });
-  if (i > 0){
+/* The bills of month i, in the order payments fill them when one payee pays two items:
+   a named one-off (the October Amex bill) first, the monthly items next, the gemeente's
+   lump sum after its monthly part. check: the Bills screen's list, which has month 0's
+   monthly bills too and leaves out a subscription paused that month (a positive
+   one-off naming it by `sub`, or of exactly its amount). */
+function billItems(i, st, check){
+  var key = inRange(i) ? PLAN.months[i].key : null, out = [];
+  function add(x, b, amount, once){
+    out.push({ b:b, amount: cents(amount), left: cents(amount), terms: itemTerms(x), name: x.name || 'Gemeente', once: !!once, paid: [], bounce: null });
+  }
+  (PLAN.oneOffs || []).forEach(function(o){ if (key && o.month === key && o.amount < 0) add(o, 'oneoff', -o.amount, true); });
+  if (i > 0 || check){
+    var paused = (PLAN.oneOffs || []).filter(function(o){ return key && o.month === key && o.amount > 0; });
     (PLAN.fixed || []).forEach(function(x){ add(x, 'bills', x.amount); });
-    keptSubs(st).forEach(function(x){ add(x, 'bills', x.amount); });
+    keptSubs(st).forEach(function(x){
+      if (check && paused.some(function(o){ return o.sub === x.id || Math.abs(o.amount - x.amount) < 0.005; })) return;
+      add(x, 'bills', x.amount);
+    });
     (PLAN.loans || []).forEach(function(x){ add(x, 'debt', x.amount); });
-    if (st.gem === key) add({ payee: (PLAN.gemeente.payee || ['Gemeente', 'Belastingen', 'Belastingsamenwerking']) }, 'oneoff', PLAN.gemeente.amount);
+    if (key && st.gem === key) add({ name: check ? 'Gemeente · the year' : 'Gemeente', payee: (PLAN.gemeente.payee || ['Gemeente', 'Belastingen', 'Belastingsamenwerking']) }, 'oneoff', PLAN.gemeente.amount, true);
   }
-  function pay(c, items){
-    var amt = c.out;
-    items.forEach(function(x){ var p = Math.min(amt, x.left); x.left -= p; amt -= p; });
-  }
-  list.forEach(function(c){
-    if (!c.counts || c.b === 'everyday' || c.out <= 0) return;
+  return out;
+}
+function amtOk(out, a){ return a < 200 ? Math.abs(out - a) < 0.005 : Math.abs(out - a) <= a * 0.02; }
+/* Payments fill the bills they name, oldest first; of two bills with the same payee
+   (KPN internet and phone) the one whose amount the payment matches goes first. A
+   payment moved into a bucket by hand pays that bucket's bills in order; with strict
+   (the Bills screen) only one whose amount it matches, so no row reads paid by guess.
+   A debit that came back marks its bill instead of paying it. */
+function allocBills(items, list, strict){
+  list.slice().sort(function(a, b){ return a.t.d < b.t.d ? -1 : a.t.d > b.t.d ? 1 : 0; }).forEach(function(c){
+    if (!c.bounced && (!c.counts || c.b === 'everyday' || c.out <= 0)) return;
     var hay = ' ' + normText(c.t.who + ' ' + (c.t.desc || '')).join(' ') + ' ';
-    var named = c.item ? plan.filter(function(x){ return x.name === c.item; })
-      : plan.filter(function(x){ return x.terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; }); });
-    if (named.length) pay(c, named);
-    else if (c.src === 'tag') pay(c, plan.filter(function(x){ return x.b === c.b; }));
+    var named = c.item ? items.filter(function(x){ return x.name === c.item; })
+      : items.filter(function(x){ return x.terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; }); });
+    if (!named.length && c.src === 'tag' && !c.bounced){
+      named = items.filter(function(x){ return x.b === c.b && (!strict || (x.left > 0.004 && amtOk(c.out, x.amount))); });
+      if (strict) named = named.slice(0, 1);
+    }
+    if (!named.length) return;
+    if (c.bounced){ if (!named[0].bounce) named[0].bounce = { d: c.t.d, amt: c.out, id: c.t.id }; return; }
+    var exact = named.filter(function(x){ return x.left > 0.004 && amtOk(c.out, x.amount); });
+    var order = exact.length ? exact.concat(named.filter(function(x){ return exact.indexOf(x) < 0; })) : named;
+    var amt = c.out, whole = named.length === 1 || exact.length > 0;
+    order.forEach(function(x, n){
+      var p = Math.min(amt, Math.max(0, x.left));
+      if (p <= 0.004) return;
+      x.left = cents(x.left - p); amt = cents(amt - p);
+      x.paid.push({ d: c.t.d, amt: cents(p), id: c.t.id, k: c.t.k, full: whole && n === 0 ? c.out : null });
+    });
   });
+  return items;
+}
+function stillToCome(i, st, list){
+  var plan = allocBills(billItems(i, st, false), list, false);
   var out = { bills:0, debt:0, oneoff:0 };
   plan.forEach(function(x){ out[x.b] += Math.max(0, x.left); });
   return { bills: cents(out.bills), debt: cents(out.debt), oneoff: cents(out.oneoff),
     items: plan.filter(function(x){ return x.left > 0.004; }).map(function(x){ return { name: x.name, left: cents(x.left) }; }) };
+}
+
+/* ─────────────────────────── the bills watch ───────────────────────────
+   What the bank says about this month's bills: which are paid, when each usually goes
+   out and from which account (learned from the last three months of payments), debits
+   that came back, an account too low for what is due in the next three days, pockets
+   not topped up, cancelled subscriptions still charging, payments that repeat without
+   being in the plan, and bills whose amount moved. Read only: it never changes the
+   forecast. The Worker gets the schedule (postWatch) and alerts on the same rules. */
+var WATCH = null;
+function hitTerms(c, terms){
+  var hay = ' ' + normText(c.t.who + ' ' + (c.t.desc || '')).join(' ') + ' ';
+  return terms.some(function(w){ return hay.indexOf(' ' + w + ' ') > -1; });
+}
+function near(a, b){ return Math.abs(a - b) <= Math.max(0.01, b * 0.05); }
+function acctLabel(a){ return a ? bankShort(a.bank) + (a.a.iban4 ? ' ··' + a.a.iban4 : '') : ''; }
+/* Per bill name, one entry per calendar month the bank shows it paid in. */
+function billLearn(cl){
+  var byYm = {}, hist = {};
+  cl.forEach(function(c){ if (c.t.amt < 0){ var ym = c.t.d.slice(0, 7); (byYm[ym] = byYm[ym] || []).push(c); } });
+  Object.keys(byYm).sort().forEach(function(ym){
+    var i = monthIndexOf(ym + '-15');
+    allocBills(billItems(i, stAt(i, S), true), byYm[ym], true).forEach(function(x){
+      if (!x.paid.length) return;
+      var big = x.paid.reduce(function(a, p){ return p.amt > a.amt ? p : a; });
+      (hist[x.name] = hist[x.name] || []).push({ ym: ym, d: x.paid[0].d, k: big.k, full: x.paid[0].full });
+    });
+  });
+  return hist;
+}
+function watch(){
+  if (!PLAN || !S || !hasBank()) return null;
+  var cl = classified(), day = todayStr();
+  if (WATCH && WATCH.cl === cl && WATCH.s === S && WATCH.day === day) return WATCH.v;
+  var ci = monthIndexOf(day), b = monthBounds(ci), ym = day.slice(0, 7), st = stAt(ci, S);
+  var lastDay = Number(b.last.slice(8)), hist = billLearn(cl);
+  var cardTerms = [];
+  ((PLAN.bank && PLAN.bank.rules) || []).forEach(function(r){ cardTerms = cardTerms.concat(itemTerms({ payee: r.match })); });
+  var items = allocBills(billItems(ci, st, true), cl.filter(function(c){ return c.t.d >= b.first && c.t.d <= b.last; }), true);
+  var since70 = addDays(day, -70).slice(0, 7);
+  items.forEach(function(x){
+    var h = (hist[x.name] || []).filter(function(e){ return e.ym < ym; }), recent = h.slice(-3);
+    var days = recent.map(function(e){ return Number(e.d.slice(8)); }).sort(function(p, q){ return p - q; });
+    x.day = days.length ? Math.min(lastDay, days[Math.floor((days.length - 1) / 2)]) : null;
+    x.due = x.day ? ym + '-' + pad2(x.day) : null;
+    x.k = recent.length ? recent[recent.length - 1].k : (x.paid[0] ? x.paid[0].k : null);
+    x.done = x.left <= 0.004;
+    x.late = !x.done && !!x.due && daysFrom(x.due, day) > 2;
+    x.soon = !x.done && !!x.due && daysFrom(day, x.due) >= 0 && daysFrom(day, x.due) <= 3;
+    x.bounced = !x.done && !!x.bounce;
+    /* The amount moved: the last payment that was wholly this bill, against the plan.
+       Not for a one-off, a card bill (its fee rides on a statement), or a lump sum. */
+    var card = x.terms.some(function(w){ return cardTerms.indexOf(w) > -1; });
+    var all = (hist[x.name] || []).filter(function(e){ return e.full && e.ym >= since70; }), lf = all[all.length - 1];
+    if (!x.once && !card && lf && Math.abs(lf.full - x.amount) > Math.max(1, x.amount * 0.03) && lf.full <= x.amount * 3)
+      x.now = { amt: cents(lf.full), ym: lf.ym };
+  });
+
+  /* Accounts too low for what is due from them in the next three days. */
+  var byK = {};
+  items.forEach(function(x){ if (x.soon && x.k) (byK[x.k] = byK[x.k] || []).push(x); });
+  var short = Object.keys(byK).map(function(k){
+    var a = accountOf(k), due = byK[k], need = cents(due.reduce(function(t, x){ return t + x.left; }, 0));
+    if (!a || a.a.bal === null || a.a.bal === undefined || a.a.bal >= need) return null;
+    return { k: k, acct: acctLabel(a), by: cents(need - a.a.bal), need: need, items: due,
+      last: due.map(function(x){ return x.due; }).sort().pop() };
+  }).filter(Boolean);
+
+  /* Pockets not topped up: from the 2nd, below their budget, nothing (or under half
+     the budget) paid in this month, on a pocket whose top-ups the bank has shown before. */
+  var topup = [];
+  if (Number(day.slice(8)) >= 2) PLAN.flex.forEach(function(f){
+    var pa = pocketAcct(f.id), budget = Number(st[f.id]) || 0;
+    if (!pa || !budget || pa.a.bal === null || pa.a.bal === undefined || pa.a.bal >= budget) return;
+    var credits = txList().filter(function(t){ return t.k === pa.a.k && t.amt > 0; });
+    if (!credits.some(function(t){ return t.d < b.first; })) return;
+    var paidIn = credits.filter(function(t){ return t.d >= b.first; }).reduce(function(t, x){ return t + x.amt; }, 0);
+    if (paidIn < budget * 0.5) topup.push({ id: f.id, label: f.label, bal: pa.a.bal, budget: budget });
+  });
+
+  /* Cancelled, still charging: a payment in the last 45 days that names one. */
+  var since45 = addDays(day, -45), zTerms = [];
+  var zombies = (PLAN.subs || []).filter(function(s){ return s.cancelled; }).map(function(s){
+    var terms = itemTerms(s);
+    zTerms = zTerms.concat(terms);
+    var hit = cl.filter(function(c){ return c.t.amt < 0 && !c.own && !c.hidden && !c.bounced && c.t.d >= since45 && hitTerms(c, terms); })[0];
+    return hit ? { name: s.name, d: hit.t.d, amt: hit.out, id: hit.t.id } : null;
+  }).filter(Boolean);
+
+  /* Repeats that are not in the plan: one payee, in two or more months, at most twice
+     a month, the same amount (within 5%) in two months, the last one in 40 days.
+     Gone once someone says what it is (a payee rule) or puts it in a bucket by hand. */
+  var cut = addDays(day, -100), groups = {};
+  cl.forEach(function(c){
+    if (c.t.amt >= 0 || c.own || c.hidden || c.ns || c.atm || c.bounced || c.t.d < cut || c.src !== 'auto') return;
+    if (c.b !== 'everyday' && c.b !== 'check') return;
+    if (hitTerms(c, zTerms)) return;
+    var pk = payeeKey(payeeOf(c.t));
+    if (pk) (groups[pk] = groups[pk] || []).push(c);
+  });
+  var recur = Object.keys(groups).map(function(pk){
+    var g = groups[pk], per = {};
+    g.forEach(function(c){ var m = c.t.d.slice(0, 7); per[m] = (per[m] || 0) + 1; });
+    if (Object.keys(per).length < 2 || Object.keys(per).some(function(m){ return per[m] > 2; })) return null;
+    var latest = g[0];
+    if (daysFrom(latest.t.d, day) > 40) return null;
+    var like = g.filter(function(c){ return near(c.out, latest.out); });
+    if (like.map(function(c){ return c.t.d.slice(0, 7); }).filter(function(m, n, l){ return l.indexOf(m) === n; }).length < 2) return null;
+    return { key: pk, name: payeeName(payeeOf(latest.t)), amt: latest.out, d: latest.t.d, list: g };
+  }).filter(Boolean).sort(function(p, q){ return q.amt - p.amt; });
+
+  var done = items.filter(function(x){ return x.done; });
+  var v = { label: inRange(ci) ? PLAN.months[ci].label : '', ym: ym, items: items, done: done.length,
+    toGo: cents(items.reduce(function(t, x){ return t + Math.max(0, x.left); }, 0)),
+    late: items.filter(function(x){ return x.late && !x.bounced; }), bounced: items.filter(function(x){ return x.bounced; }),
+    short: short, topup: topup, zombies: zombies, recur: recur,
+    changed: items.filter(function(x){ return x.now; }) };
+  WATCH = { cl: cl, s: S, day: day, v: v };
+  return v;
+}
+function billName(x){ return x.name.replace(/\s*\(.*\)$/, ''); }
+function ordinal(n){ var s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+/* Today's amber rows: only what needs doing. */
+function watchAmbHtml(){
+  var W = watch();
+  if (!W) return '';
+  var html = '';
+  W.bounced.forEach(function(x){ html += oAmb(billName(x) + ' bounced · pay it by hand', 'data-go="bills"'); });
+  W.short.forEach(function(s){ html += oAmb(fmtAmt(s.by) + ' short in ' + s.acct + ' · by ' + shortDate(s.last), 'data-go="bills"'); });
+  if (W.late.length) html += oAmb((W.late.length === 1 ? billName(W.late[0]) + ' is' : W.late.length + ' bills are') + ' late', 'data-go="bills"');
+  if (W.topup.length) html += oAmb(andList(W.topup.map(function(p){ return p.label; })) + ' not topped up', 'data-go="bank"');
+  W.zombies.filter(function(z){ return daysFrom(z.d, todayStr()) <= 10; })
+    .forEach(function(z){ html += oAmb(z.name + ' still charging', 'data-go="bills"'); });
+  return html;
+}
+function billsScreenHtml(){
+  if (!bankKey) return oHero('Bills', '—') + oAmb(BANKINFO.conns ? 'Enter the PIN to see the bills' : 'Connect the bank first',
+    BANKINFO.conns ? 'data-pin="unlock"' : 'data-go="bank"');
+  var W = watch();
+  if (!W) return oHero('Bills', '—') + oAmb('Connect the bank first', 'data-go="bank"');
+  var day = todayStr(), n = W.items.length;
+  var open = W.items.filter(function(x){ return !x.done; }).sort(function(p, q){
+    return (p.due || '9') < (q.due || '9') ? -1 : (p.due || '9') > (q.due || '9') ? 1 : 0;
+  });
+  var next = open.filter(function(x){ return x.due && x.due >= day; })[0];
+  var html = oHero('Still to go out · ' + W.label, fmt(W.toGo, true),
+    W.done + ' of ' + n + ' paid' + (next ? ' · next ' + billName(next) + ' ' + (next.due === day ? 'today' : shortDate(next.due)) : ''));
+  W.bounced.forEach(function(x){ html += oAmb(billName(x) + ' bounced ' + shortDate(x.bounce.d) + ' · pay it by hand', 'data-pay="' + esc(x.bounce.id) + '"'); });
+  W.short.forEach(function(s){
+    html += oAmb(fmtAmt(s.by) + ' short in ' + s.acct + ' for ' + andList(s.items.map(billName)) + ' · by ' + shortDate(s.last));
+  });
+  W.zombies.forEach(function(z){ html += oAmb(z.name + ' is cancelled · charged ' + fmtAmt(z.amt) + ' ' + shortDate(z.d), 'data-pay="' + esc(z.id) + '"'); });
+  var row = function(x){
+    var a = x.k ? accountOf(x.k) : null, where = a ? ' · ' + acctLabel(a) : '';
+    var part = x.paid.length && !x.done ? fmtAmt(cents(x.amount - x.left)) + ' paid · ' : '';
+    var sub = x.bounced ? 'Came back · ' + shortDate(x.bounce.d)
+      : x.late ? 'Usually the ' + ordinal(x.day) + ' · not seen' + where
+      : x.due ? part + (x.due === day ? 'Due today' : 'Usually the ' + ordinal(x.day)) + where
+      : part + 'Not seen yet';
+    return oRow(x.name, fmtAmt(x.bounced ? Math.max(x.left, x.bounce.amt) : x.left), '', x.late || x.bounced ? 'over' : x.soon ? '' : 'dim', sub);
+  };
+  var late = open.filter(function(x){ return x.late || x.bounced; }), coming = open.filter(function(x){ return !x.late && !x.bounced; });
+  if (late.length) html += oGrp('Late', fmt(cents(late.reduce(function(t, x){ return t + x.left; }, 0)), true)) + late.map(row).join('');
+  if (coming.length) html += oGrp('Coming', fmt(cents(coming.reduce(function(t, x){ return t + x.left; }, 0)), true)) + coming.map(row).join('');
+  var paid = W.items.filter(function(x){ return x.done; }).sort(function(p, q){ return p.paid[0].d < q.paid[0].d ? 1 : -1; });
+  if (paid.length) html += oGrp('Paid', fmt(cents(paid.reduce(function(t, x){ return t + x.amount; }, 0)), true)) + paid.map(function(x){
+    var p = x.paid[x.paid.length - 1];
+    return oRowH(esc(x.name), '<span class="good">✓</span> ' + esc(fmtAmt(cents(x.paid.reduce(function(t, q){ return t + q.amt; }, 0)))),
+      'data-pay="' + esc(p.id) + '"', '', esc(shortDate(x.paid[0].d) + (x.now ? ' · plan ' + fmtAmt(x.amount) : '')));
+  }).join('');
+  if (W.changed.length || W.recur.length){
+    html += oGrp('Watch');
+    W.changed.forEach(function(x){
+      html += oRow(billName(x) + ' · now ' + fmtAmt(x.now.amt), '', '', 'over', 'Plan ' + fmtAmt(x.amount) + ' · ' + (x.now.amt > x.amount ? '+' : '−') + fmtAmt(cents(Math.abs(x.now.amt - x.amount))) + ' a month');
+    });
+    W.recur.forEach(function(r){
+      html += oRow(r.name, fmtAmt(r.amt), 'data-recur="' + esc(r.key) + '"', '', 'Repeats · not in the plan');
+    });
+  }
+  return html + '<p class="o-foot">Due days come from the last three months. A bill paid from an account Runway can’t see stays open.</p>';
+}
+function recurSheetHtml(){
+  var W = watch(), r = W && W.recur.filter(function(x){ return x.key === recurKey; })[0];
+  var head = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">' + esc(r ? r.name : 'Repeats') + '</h2><span></span></div>';
+  if (!r) return head + '<p class="hint">Sorted.</p>';
+  return head + oGrp('Payments', fmt(cents(r.list.reduce(function(t, c){ return t + c.out; }, 0)), true)) +
+    r.list.map(function(c){ return oRow(dayLabel(c.t.d), fmtAmt(c.out), 'data-pay="' + esc(c.t.id) + '"'); }).join('') +
+    '<p class="hint" style="margin-top:14px">What is it?</p>' +
+    '<div class="acts"><button class="ghost" data-recurb="everyday">Everyday</button><button class="solid" data-recurb="bills">A bill</button></div>';
+}
+var recurKey = null;
+function settleRecur(b){
+  var W = watch(), r = W && W.recur.filter(function(x){ return x.key === recurKey; })[0];
+  if (!r) return closeSheet();
+  closeSheet();
+  tagWrite([{ payee: payeeOf(r.list[0].t), b: b }], 'Every ' + r.name + ' → ' + bucketLabel(b));
+}
+/* The schedule the Worker's watch checks between visits, sent when it changes (and
+   once a day, so a new month's one-offs reach it). */
+function watchWire(){
+  var W = watch();
+  if (!W) return null;
+  var st = stAt(monthIndexOf(todayStr()), S);
+  return { m: W.ym,
+    bills: W.items.map(function(x){ return { n: x.name.slice(0, 60), t: x.terms.slice(0, 8), a: x.amount, d: x.day, k: x.k, o: x.once ? 1 : 0 }; }),
+    pockets: PLAN.flex.map(function(f){ var pa = pocketAcct(f.id); return pa ? { k: pa.a.k, n: f.label, b: Number(st[f.id]) || 0 } : null; }).filter(Boolean) };
+}
+async function postWatch(){
+  if (!bankKey || !hasBank() || !PLAN || !S) return;
+  var w = watchWire();
+  if (!w) return;
+  var s = JSON.stringify(w), name = 'runway-watch-' + CODE, prev = store.get(name);
+  if (prev && prev.s === s && prev.day === todayStr()) return;
+  try {
+    var r = await bankFetch('/api/watch/' + CODE, { method:'POST', body: Object.assign({ by: ME || null }, w) });
+    if (r.ok) store.set(name, { s: s, day: todayStr() });
+  } catch(e){}
 }
 
 /* The current month, line by line: what the forecast still takes off today's money.
@@ -1476,7 +1732,7 @@ async function pullBank(){
   if (!bankKey) return false;
   try {
     var r = await bankFetch('/api/bank/' + CODE);
-    if (r.ok && r.data){ setBank(r.data); return true; }
+    if (r.ok && r.data){ setBank(r.data); setTimeout(postWatch, 0); return true; }
   } catch(e){}
   return false;
 }
@@ -1572,8 +1828,28 @@ function classify(t){
   return c;
 }
 function classified(){
-  if (!CL) CL = txList().map(classify);
+  if (!CL){ CL = txList().map(classify); markBounces(CL); }
   return CL;
+}
+/* A direct debit that came back: the same amount booked back onto the same account
+   within two weeks, from the same payee (or with storno words), for a bill. Neither
+   leg counts; the bill is open again. The Worker's watch.js finds them the same way. */
+var STORNO = /(^| )(storno|stornering|terugboeking|teruggeboekt|teruggestort|retour|reversal|reversed|returned|rejected|geweigerd|onvoldoende saldo)( |$)/;
+function markBounces(list){
+  list.forEach(function(cr){
+    if (!(cr.t.amt > 0) || cr.own) return;
+    var storno = STORNO.test(normText(cr.t.who + ' ' + (cr.t.desc || '')).join(' '));
+    var pk = payeeKey(payeeOf(cr.t)), c100 = Math.round(cr.t.amt * 100);
+    var db = list.filter(function(d){
+      if (!(d.t.amt < 0) || d.own || d.bounced || d.t.k !== cr.t.k || Math.round(-d.t.amt * 100) !== c100) return false;
+      var g = daysFrom(d.t.d, cr.t.d);
+      if (g < 0 || g > 14) return false;
+      var bill = d.b === 'bills' || d.b === 'debt' || d.b === 'oneoff';
+      return pk && payeeKey(payeeOf(d.t)) === pk ? bill || storno : storno && bill;
+    })[0];
+    if (!db) return;
+    db.bounced = cr.t.id; db.counts = false; cr.reverses = db.t.id;
+  });
 }
 /* The pockets: an account (by key) that holds the money for one everyday budget.
    Linked on the Bank screen, kept in tags.acct, so they sit behind the PIN too. */
@@ -2568,6 +2844,8 @@ function renderSheet(){
       var pick = payDraft.b;
       var choices = BUCKETS.concat([['save','Savings']]).concat(credit ? [['in','Money in']] : []);
       var whyNow = c.own ? 'Money between your own connected accounts: never counted.'
+        : c.bounced ? 'This debit came back, so it counts nowhere and the bill is open again.'
+        : c.reverses ? 'A debit coming back: the bank did not pay it. Counts nowhere.'
         : c.b === 'save' && c.src === 'auto' ? 'Looks like money put into savings: never counted. Pick a bucket if it was spending.'
         : c.b === 'check' ? 'Big, and nothing recognised it, so it counts nowhere until you pick where it goes.'
         : c.src === 'tag' ? (byOther(c.tag) ? 'Moved here by ' + c.tag.by + '.' : 'Moved here by hand.')
@@ -2599,6 +2877,10 @@ function renderSheet(){
         '</div>' +
         (c.tag.at ? '<p class="small" style="margin-top:12px">Last changed ' + esc(ago(c.tag.at)) + (c.tag.by ? ' by ' + esc(c.tag.by) : '') + '.</p>' : '');
     }
+  }
+
+  else if (sheetKind === 'recur'){
+    html = recurSheetHtml();
   }
 
   else if (sheetKind === 'changed'){
@@ -2793,7 +3075,7 @@ function diffRows(){
 /* ─────────────────────────── render ─────────────────────────── */
 
 var PAGES = [['today','Today'],['forecast','Forecast'],['tasks','Tasks'],['mother','Mother']];
-var SCREENS = ['today','forecast','month','subs','debts','tasks','spends','bank','payments','mother'];
+var SCREENS = ['today','forecast','month','subs','debts','tasks','spends','bank','bills','payments','mother'];
 var cameFrom = 'today';
 
 function go(p, pushState){
@@ -2834,7 +3116,7 @@ function render(){
 
   $('tabs').hidden = false;
   $('tabs').firstElementChild.innerHTML = PAGES.map(function(p){
-    var here = ['month','debts','spends','bank','payments'].indexOf(page) > -1 ? 'today' : (page === 'subs' ? cameFrom : page);
+    var here = ['month','debts','spends','bank','bills','payments'].indexOf(page) > -1 ? 'today' : (page === 'subs' ? cameFrom : page);
     return '<button data-go="' + p[0] + '" aria-current="' + (here === p[0] ? 'page' : 'false') + '">' +
       p[1] + '<em' + ((p[0] === 'mother' && (toHear().length || toAnswer().length || recalcDue())) || (p[0] === 'tasks' && taskPings().length) ? ' class="call"' : '') + '></em></button>';
   }).join('');
@@ -2850,7 +3132,7 @@ function render(){
   var fx = fixes();
   SFX.alert(page === 'today' && !!fx);
   $('t-hero').innerHTML = env ? todayHeroHtml(env) : oHero('By ' + lastLabel, fmt(cur.end));
-  $('t-act').innerHTML = whoHtml() + recalcRowHtml() + (recalcDue() ? '' : savingsAskHtml()) + motherRowHtml() + actRowHtml(fx) + alertsLine();
+  $('t-act').innerHTML = whoHtml() + recalcRowHtml() + (recalcDue() ? '' : savingsAskHtml()) + motherRowHtml() + actRowHtml(fx) + watchAmbHtml() + alertsLine();
   renderMother();
   $('t-cats').innerHTML = env ? everydayHtml(env) : '';
   $('t-bank').innerHTML = todayMoneyHtml(env);
@@ -2956,6 +3238,7 @@ function render(){
   if (page === 'bank') $('b-sync').innerHTML = bankKey && hasBank()
     ? '<button class="o-key" data-act="sync" aria-label="Sync now">⟳ ' + esc(syncedAt()) + '</button>' : '';
   if (page === 'bank' && !(document.activeElement && document.activeElement.id === 'bank-q')) $('b-body').innerHTML = bankScreenHtml();
+  if (page === 'bills') $('bl-body').innerHTML = billsScreenHtml();
   if (page === 'payments'){
     /* Redrawing the head while someone types in its search box would take the box away. */
     if (!(document.activeElement && document.activeElement.id === 'pay-q')) $('p-head').innerHTML = paymentsHeadHtml();
@@ -3027,6 +3310,9 @@ function todayMoneyHtml(env){
     var toSort = classified().filter(function(c){ return c.b === 'check' && !c.hidden; }).length;
     var monthN = env ? bankIn(env.index).filter(function(c){ return !c.hidden; }).length : 0;
     html += oRow('In the bank', total === null ? '—' : fmt(total), 'data-go="bank"', warn ? 'over' : '');
+    var W = watch();
+    if (W && W.items.length) html += oRow('Bills · ' + W.label.slice(0, 3), W.done + '/' + W.items.length + ' paid', 'data-go="bills"',
+      W.late.length || W.bounced.length || W.short.length ? 'over' : '');
     if (!hasPockets()) html += oRow('Link the pockets', '', 'data-sheet="bankmanage"', 'over');
     html += oRowH('Payments' + (fresh && !toSort ? ' <span class="new">' + fresh + ' new</span>' : ''),
       esc(toSort ? toSort + ' to sort' : String(monthN)), 'data-pays="' + (toSort ? 'check' : 'all') + '"', toSort ? 'over' : '');
@@ -4141,6 +4427,12 @@ document.addEventListener('click', function(e){
     if (d.connect) return connectBank(d.connect, d.country);
     if (d.disconnect) return disconnectBank(d.disconnect);
     return;
+  }
+  var rcr = e.target.closest('[data-recur],[data-recurb]');
+  if (rcr){
+    e.preventDefault();
+    if (rcr.dataset.recur){ recurKey = rcr.dataset.recur; return openSheet('recur'); }
+    return settleRecur(rcr.dataset.recurb);
   }
   var tk = e.target.closest('[data-tick],[data-topen],[data-tedit],[data-tdel],[data-twho],[data-twhen]');
   if (tk){

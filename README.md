@@ -23,7 +23,8 @@ Optional. Once connected, Runway reads the balance and booked payments of the re
 - **A PIN guards it.** Plan and state still need only the link; the bank needs a device key, which a phone gets by entering the PIN once. The first phone chooses the PIN. Five wrong tries lock it for a day. `DELETE /api/pin/<code>` with the admin token clears it.
 - **Buckets.** Every payment is everyday, bills, debt payments or a one-off. Payees matching the plan's `fixed` and `subs` are bills, `loans` are debt (an item's optional `payee` field names the payee), `bank.rules` in the plan come first, and a person's choice in the app ("this payment only" or "every payment to this payee") beats all of them. Money moved between two connected accounts is paired and never counted.
 - **What it changes.** Everyday payments count against the month's budget together with cash (the spend log becomes "Cash"). One-offs move the forecast. The Month page shows the four buckets, planned against actual.
-- **Documents.** `pin:<code>`, `bank:<code>` (connections, balances), `banktx:<code>` (payments), `tags:<code>` (what people changed). See the header of `worker/src/bank.js`.
+- **Bills.** The Bills screen lists this month's bills as paid, coming or late. Each bill's usual day and account are learned from the last three months of payments. It also flags debits that came back, accounts too low for the next three days of bills, pockets not topped up, cancelled subscriptions still charging, payments that repeat without being in the plan, and bills whose amount changed. The page sends that schedule to the Worker, and every sync alerts on the same rules (`worker/src/watch.js`). None of it touches the forecast.
+- **Documents.** `pin:<code>`, `bank:<code>` (connections, balances), `banktx:<code>` (payments), `tags:<code>` (what people changed), `watch:<code>` (the bills schedule and which alerts went out). See the header of `worker/src/bank.js`.
 
 ### Setting it up
 

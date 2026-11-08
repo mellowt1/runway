@@ -28,12 +28,14 @@
  *   POST   /api/bank/:code/sync                           sync now (at most every ten minutes)
  *   POST   /api/bank/:code/disconnect  <- { conn }        ends the consent at the bank too
  *   POST   /api/tag/:code              <- { by, id, b, ns, hide, flag } | { by, payee, b } | { by, acct, pocket }
+ *   POST   /api/watch/:code            <- { by, m, bills, pockets }   what the bills watch checks (watch.js)
  *
  * The bank routes need header X-Runway-Key. A cron syncs every code four times a day,
  * the most banks allow without the person present.
  */
 
 import * as eb from './eb.js';
+import { checkWatch, handleWatch } from './watch.js';
 
 const TTL = 400 * 24 * 3600;
 const KEEP_DAYS = 400;
@@ -342,6 +344,11 @@ export async function syncCode(env, code, { psu } = {}) {
   await write(env, metaKey, meta);
   await backfillMonths(env, code, fresh, list);
   await snapMonth(env, code, meta, errors.length > 0);
+  try {
+    await checkWatch(env, code, meta, list);
+  } catch (e) {
+    console.log('watch failed', code, e && e.message);
+  }
   return { ok: !errors.length, added, errors };
 }
 
@@ -729,8 +736,9 @@ export async function bankRoutes(request, env, ctx, url, json) {
 
   const bank = path.match(/^\/api\/bank\/([a-z0-9]+)(?:\/(banks|connect|sync|disconnect))?$/i);
   const tag = path.match(/^\/api\/tag\/([a-z0-9]+)$/i);
-  if (!bank && !tag) return null;
-  const code = codeOf(bank || tag);
+  const wt = path.match(/^\/api\/watch\/([a-z0-9]+)$/i);
+  if (!bank && !tag && !wt) return null;
+  const code = codeOf(bank || tag || wt);
   if (!code) return json({ error: 'bad code' }, 400);
   if (!(await checkKey(env, code, request))) return json({ error: 'locked', locked: true }, 401);
 
@@ -738,6 +746,7 @@ export async function bankRoutes(request, env, ctx, url, json) {
     if (request.method !== 'POST') return json({ error: 'method' }, 405);
     return handleTag(request, env, code, json);
   }
+  if (wt) return handleWatch(request, env, code, json);
   const action = bank[2];
   if (!action && request.method === 'GET') {
     const [meta, tx, tags, months] = await Promise.all([
