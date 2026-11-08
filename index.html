@@ -553,6 +553,8 @@ details p{font:400 21px/1.2 var(--serif)}
 .o-top{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;margin-bottom:14px}
 .o-top > span:last-child{display:flex;gap:14px;white-space:nowrap}
 .o-top #hum{margin-left:0}
+#t-date{white-space:nowrap}
+#s-today .o-top > span:last-child{gap:10px}
 .o-eb{font:400 13px var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
 .o-big{font:400 96px/.86 var(--serif);margin-top:6px;white-space:nowrap;text-transform:uppercase}
 .o-big.long{font-size:72px}
@@ -689,14 +691,13 @@ details p{font:400 21px/1.2 var(--serif)}
   <section class="screen" id="s-today" hidden>
     <div class="o-top">
       <span class="o-eb" id="t-date"></span>
-      <span><button class="snd" id="snd" type="button" aria-pressed="true">Sound on</button><button class="snd" id="hum" type="button" aria-pressed="false">Hum off</button></span>
+      <span><button class="snd" id="snd" type="button" aria-pressed="true">Sound on</button><button class="snd" id="hum" type="button" aria-pressed="false">Hum off</button><button class="snd" id="alr" type="button" data-fix="alerts" aria-pressed="false" aria-label="Turn on alerts" hidden>Alerts</button></span>
     </div>
     <div id="t-hero"></div>
     <div id="t-act"></div>
     <div id="t-cats"></div>
     <div id="t-bank"></div>
     <div id="t-nav"></div>
-    <button class="o-key o-entry" id="t-entry" data-sheet="log">[ + New entry ]</button>
   </section>
 
   <section class="screen" id="s-forecast" hidden>
@@ -1328,8 +1329,8 @@ function billsScreenHtml(){
     var part = x.paid.length && !x.done ? fmtAmt(cents(x.amount - x.left)) + ' paid · ' : '';
     var sub = x.bounced ? 'Came back · ' + shortDate(x.bounce.d)
       : x.late ? 'Usually the ' + ordinal(x.day) + ' · not seen' + where
-      : x.due ? part + (x.due === day ? 'Due today' : 'Usually the ' + ordinal(x.day)) + where
-      : part + 'Not seen yet';
+      : x.due ? part + (x.due === day ? 'Due today' : 'Usually the ' + ordinal(x.day))
+      : part.replace(/ · $/, '');
     return oRow(x.name, fmtAmt(x.bounced ? Math.max(x.left, x.bounce.amt) : x.left), '', x.late || x.bounced ? 'over' : x.soon ? '' : 'dim', sub);
   };
   var late = open.filter(function(x){ return x.late || x.bounced; }), coming = open.filter(function(x){ return !x.late && !x.bounced; });
@@ -1350,7 +1351,7 @@ function billsScreenHtml(){
       html += oRow(r.name, fmtAmt(r.amt), 'data-recur="' + esc(r.key) + '"', '', 'Repeats · not in the plan');
     });
   }
-  return html + '<p class="o-foot">Due days come from the last three months. A bill paid from an account Runway can’t see stays open.</p>';
+  return html;
 }
 function recurSheetHtml(){
   var W = watch(), r = W && W.recur.filter(function(x){ return x.key === recurKey; })[0];
@@ -3159,15 +3160,14 @@ function renderSheet(){
       '<p class="err" id="tk-err" role="alert"></p>' +
       '<button class="enter" data-act="add-task">' + (addDraft.id ? 'Save' : 'Add the task') + '</button>' +
       (addDraft.id ? '<button class="o-row dim" type="button" data-tdel="' + esc(addDraft.id) + '"><span>Delete the task</span></button>'
-        : '<p class="o-foot">The other phone gets an alert</p>');
+        : '');
   }
 
   else if (sheetKind === 'ask'){
     html = '<div class="lg-head"><button class="cancel" data-act="cancel">Cancel</button><h2 id="sheet-title">Inquiry</h2><span></span></div>' +
       '<textarea class="mo-ta" id="mo-q" maxlength="240" placeholder="What do you want to know?" aria-label="Your question">' + esc(askDraft.q || '') + '</textarea>' +
       '<p class="err" id="mo-err" role="alert"></p>' +
-      '<button class="enter" data-act="send-ask">Transmit</button>' +
-      '<p class="o-foot">' + esc(otherName()) + ' gets an alert and answers. MOTHER types the answer out for you.</p>';
+      '<button class="enter" data-act="send-ask">Transmit</button>';
   }
 
   else if (sheetKind === 'inq'){
@@ -3187,8 +3187,7 @@ function renderSheet(){
         html += '<textarea class="mo-ta" id="mo-a" maxlength="800" placeholder="MOTHER says…" aria-label="Your answer">' +
             esc(askDraft && askDraft.id === mq.id ? askDraft.a : '') + '</textarea>' +
           '<p class="err" id="mo-err" role="alert"></p>' +
-          '<button class="enter" data-act="send-answer">Transmit</button>' +
-          '<p class="o-foot">' + esc(mq.by) + '’s phone gets an alert. MOTHER types your answer out on it.</p>';
+          '<button class="enter" data-act="send-answer">Transmit</button>';
       } else {
         html += '<p class="o-line">Awaiting response from ' + esc(otherName()) + '</p>';
       }
@@ -3517,7 +3516,8 @@ function go(p, pushState){
 function renderLive(){
   var box = $('livebar');
   if (!box) return;
-  if (!changed()){ box.innerHTML = ''; return; }
+  var fresh = REMOTE.updated && Date.now() - Date.parse(REMOTE.updated) < 3 * 864e5;
+  if (!changed() || !fresh || !REMOTE.by || REMOTE.by === ME){ box.innerHTML = ''; return; }
   var who = REMOTE.by && REMOTE.by !== ME ? esc(REMOTE.by) + ' changed the plan'
           : (REMOTE.by === ME && ME ? 'You changed the plan' : 'The plan was changed');
   var when = dirty ? 'saving…' : ago(REMOTE.updated);
@@ -3552,7 +3552,6 @@ function render(){
   renderMother();
   $('t-cats').innerHTML = env ? everydayHtml(env) : '';
   $('t-bank').innerHTML = todayMoneyHtml(env);
-  $('t-entry').textContent = '[ + ' + (hasBank() ? 'Enter cash' : 'New entry') + ' ]';
   $('sp-entry').textContent = hasBank() ? '+ Cash' : '+ Entry';
 
   var d = dip(cur.M);
@@ -3593,15 +3592,15 @@ function render(){
   $('m-rows').innerHTML = oGrp('Where it goes', fmt(cur.monthly)) + groups.map(function(g){
     return oRowH(esc(g[0]), '<span class="dim">' + Math.round(g[1] / cur.monthly * 100) + '%</span> ' + esc(fmt(g[1])), g[3]);
   }).join('');
-  $('m-foot').innerHTML = stillToPayHtml(PLAN.stillToCome);
+  $('m-foot').innerHTML = extrasAheadHtml();
 
   /* Subscriptions */
   var live = PLAN.subs.filter(function(s){ return !s.cancelled; });
   var gone = PLAN.subs.filter(function(s){ return s.cancelled; });
-  $('su-count').textContent = keptSubs(S).length + ' kept' + (gone.length ? ' · ' + gone.length + ' cancelled' : '');
+  $('su-count').textContent = '';
   $('su-hero').innerHTML = oHero('Kept · a month', fmt(cur.subsT, true),
     fmt(cur.subsT * 12) + ' a year' + (cur.subsT !== base.subsT ? ' · was ' + fmt(base.subsT, true) : ''));
-  $('su-rows').innerHTML = oGrp('Subscriptions', fmt(cur.subsT, true) + ' kept') + live.map(function(s){
+  $('su-rows').innerHTML = oGrp('Tap to keep or drop') + live.map(function(s){
     var on = (S.subs||[]).indexOf(s.id) > -1;
     var top = '<span class="o-box' + (on ? ' on' : '') + '"></span><span>' + esc(s.name) + '</span><span class="lead"></span>' +
       '<span class="v">' + fmt(s.amount, true) + '</span>';
@@ -3609,9 +3608,7 @@ function render(){
       '<input type="checkbox" class="sw" value="' + s.id + '"' + (on ? ' checked' : '') + ' aria-label="Keep ' + esc(s.name) + '">' +
       (s.note ? '<span class="top">' + top + '</span><span class="o-sm" style="padding-left:22px">' + esc(s.note) + '</span>' : top) + '</label>';
   }).join('');
-  $('su-gone').innerHTML = gone.length ? oGrp('Cancelled', '−' + fmt(sum(gone), true)) + gone.map(function(s){
-    return oRow(s.name, fmt(s.amount, true), '', 'dim');
-  }).join('') : '';
+  $('su-gone').innerHTML = gone.length ? oRow(gone.length + ' cancelled', '−' + fmt(sum(gone), true) + ' a month', '', 'dim', gone.map(function(s){ return s.name; }).join(' · ')) : '';
 
   /* Debts */
   var D = PLAN.debts;
@@ -3632,21 +3629,21 @@ function render(){
   var T = allTasks(), mine = T.filter(function(k){ return k.who === lc(PLAN.people.owner); }),
       theirs = T.filter(function(k){ return k.who === lc(PLAN.people.other); });
   var left = mine.filter(function(k){ return !k.done; }).length;
-  $('k-count').textContent = left ? left + ' left' : 'all done';
+  $('k-count').textContent = '';
   var next = mine.filter(function(k){ return !k.done && k.due; }).sort(function(a, b){ return a.due < b.due ? -1 : 1; })[0];
   var kRects = page === 'tasks' ? taskRects() : null;
   $('k-hero').innerHTML = taskActLine() +
     (next ? oHero('Next deadline', shortDate(next.due), next.t) : oHero('To do', String(left), left === 1 ? 'task left' : 'tasks left')) +
-    taskMeterHtml(T) +
     (taskErr ? '<p class="o-sm" style="color:var(--over)">' + esc(taskErr) + '</p>' : '');
-  $('k-rule').innerHTML = PLAN.rule ? oAmb('Rule · ' + PLAN.rule.title, 'data-sheet="rule"') : '';
+  $('k-rule').innerHTML = '';
   $('k-list').innerHTML = taskGroupHtml(PLAN.people.owner, mine) + (PLAN.script ? oRow(PLAN.script.eyebrow, '', 'data-sheet="script"') : '');
-  $('k-paul').innerHTML = taskGroupHtml(PLAN.people.other, theirs);
+  $('k-paul').innerHTML = taskGroupHtml(PLAN.people.other, theirs) +
+    (PLAN.rule ? oGrp('Rule') + oRow(PLAN.rule.title, '', 'data-sheet="rule"') : '');
   /* Rows moved by someone else's change slide too; seen once this screen has been open a moment. */
   if (kRects) taskSlide(kRects);
   clearTimeout(taskSeenTimer);
   if (page === 'tasks' && !document.hidden && taskPings().length) taskSeenTimer = setTimeout(markTasksSeen, 6000);
-  $('k-foot').textContent = (PLAN.handoff ? 'From ' + PLAN.handoff + '. ' : '') + (PLAN.footnote || '');
+  $('k-foot').textContent = '';
 
   /* This month's spends */
   var le = inRange(ci) ? envelope(ci) : null;
@@ -3716,9 +3713,7 @@ function everydayHtml(e){
   if (hasBank() && (e.pockets ? e.outside : e.bank)) html += oRow(e.pockets ? 'Not from a pocket' : 'Card & bank',
     fmtAmt(e.pockets ? e.outside : e.bank) + ' spent', '', e.pockets ? 'over' : 'dim');
   if (e.legacy) html += oRow('Earlier', fmtAmt(e.legacy) + ' spent', '', 'dim');
-  if (hasBank()) html += oRow('Everyday payments',
-    String(bankIn(e.index).filter(function(c){ return c.counts && c.b === 'everyday'; }).length), 'data-pays="everyday"');
-  return html;
+  return html + oRowH('<span class="dim">+ ' + (hasBank() ? 'Cash' : 'Entry') + '</span>', '', 'data-sheet="log"');
 }
 function todayMoneyHtml(env){
   var html = oGrp('Money');
@@ -3743,6 +3738,15 @@ function todayMoneyHtml(env){
 }
 /* The plan's line of bills still to pay ("…: Amex Gold bill in October €354.13 · …")
    as rows; left as a line if it does not read that way. */
+/* One-offs on top of a normal month, only for this month and the ones still to come. */
+function extrasAheadHtml(){
+  var now = monthIndexOf(todayStr()), keys = PLAN.months.map(function(m){ return m.key; });
+  var rows = (PLAN.oneOffs || []).filter(function(o){ return keys.indexOf(o.month) >= now; });
+  if (!rows.length) return '';
+  return oGrp('On top of a normal month') + rows.map(function(o){
+    return oRow(o.month + ' · ' + o.name.replace(/\s+in\s+\w+$/i, ''), (o.amount > 0 ? '+' : '−') + fmtAmt(Math.abs(o.amount)), '', o.amount > 0 ? 'dim' : '');
+  }).join('');
+}
 function stillToPayHtml(text){
   var m = String(text || '').match(/^[^:]*:\s*(.*)$/);
   if (!m) return text ? '<p class="o-foot">' + esc(text) + '</p>' : '';
@@ -3880,7 +3884,7 @@ function taskMeterHtml(T){
 function taskGroupHtml(name, list){
   var left = list.filter(function(k){ return !k.done; }).length;
   var pings = taskPings().map(function(k){ return k.id; });
-  return oGrp(name, list.length ? left + ' of ' + list.length + ' left' : '') + (list.length ? taskOrder(list).map(function(k){
+  return oGrp(name, list.length ? (left ? left + ' left' : 'all done') : '') + (list.length ? taskOrder(list).map(function(k){
     var just = justTicked && justTicked.id === k.id && Date.now() - justTicked.at < 1500;
     var ping = pings.indexOf(k.id) > -1;
     return '<div class="o-row o-task' + (k.done ? ' done' : '') + (just ? ' just' : '') + (ping ? ' ping' : '') + '" data-row="' + esc(k.id) + '">' +
@@ -4541,10 +4545,10 @@ async function alertsOn(){
   await checkAlerts();
 }
 function alertsLine(){
+  var k = $('alr');
+  if (k) k.hidden = alerts !== 'off';
   if (alertErr) return '<p class="o-sm" style="color:var(--over)">Alerts did not turn on. Try again in a moment.</p>';
-  if (alerts === 'off') return oRow('Get alerts', 'Turn on', 'data-fix="alerts"', '', 'When ' + PLAN.people.other + ' changes something');
-  if (alerts === 'ios') return '<p class="o-foot">For alerts on this iPhone: Share › Add to Home Screen, then open Runway from there.' +
-    ' If it asks for a code: <b>' + esc(CODE) + '</b></p>';
+  if (alerts === 'ios') return '<p class="o-foot">Alerts: Share › Add to Home Screen. Code <b>' + esc(CODE) + '</b></p>';
   return '';
 }
 
@@ -4616,7 +4620,7 @@ function sortLine(list){
 
 function bankScreenHtml(){
   var msg = bankMsg ? '<p class="o-sm" style="padding-top:8px">' + esc(bankMsg) + '</p>' : '';
-  var man = manualAccounts(), foot = '<p class="o-foot">Read-only · Runway can’t move money</p>';
+  var man = manualAccounts(), foot = '';
   var savings = man.length ? oGrp('Savings', fmt(cents(man.reduce(function(t, m){ return t + manualBal(m); }, 0)))) + manualRowsHtml() : '';
   if (!bankKey){
     var hasPin = BANKINFO.pin;
@@ -4729,12 +4733,6 @@ function paymentsHeadHtml(){
     '<div class="filters" role="group" aria-label="Bucket">' + chips.map(function(c){
       return '<button data-bf="' + c[0] + '" aria-pressed="' + (f.b === c[0]) + '">' + esc(c[1]) + '</button>';
     }).join('') + '</div>';
-  if (BANK.conns.length > 1){
-    html += '<div class="filters" role="group" aria-label="Bank">' +
-      [['all','Every bank']].concat(BANK.conns.map(function(c){ return [c.id, bankShort(c.bank)]; })).map(function(c){
-        return '<button data-kf="' + esc(c[0]) + '" aria-pressed="' + (f.k === c[0]) + '">' + esc(c[1]) + '</button>';
-      }).join('') + '</div>';
-  }
   html += '<label class="search"><span class="eyebrow">Find</span><input id="pay-q" type="search" autocomplete="off" placeholder="a payee" value="' + esc(f.q) + '"></label>';
   return html;
 }
