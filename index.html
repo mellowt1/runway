@@ -674,6 +674,37 @@ details p{font:400 21px/1.2 var(--serif)}
 .rc-step .v{font:400 28px var(--serif);min-width:4.2em;text-align:center}
 .rc-step .o-key{min-width:44px;font-size:24px;padding:0}
 .rc-step .o-sm{grid-column:1 / -1;margin-top:-6px}
+
+/* Quiet days: a week of cells on Today, the tracker and the month in the sheet,
+   the daily scan on MOTHER's screen */
+.qd-wk{display:inline-flex;gap:4px;margin-left:8px;vertical-align:1px}
+.qd-wk i{display:block;width:9px;height:14px;border:1px solid var(--rule)}
+.qd-wk i.q{background:var(--ink);border-color:var(--ink);box-shadow:0 0 5px var(--glow)}
+.qd-wk i.s{border-color:var(--muted);opacity:.55}
+.qd-wk i.p{border-style:dashed}
+.qd-wk i.t{border-color:var(--green)}
+.trk{margin-top:6px}
+.trk canvas{height:150px}
+.trk .nav-k{font-size:28px}
+.qd-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:10px}
+.qd-cal b{font:400 11px var(--sans);letter-spacing:.1em;color:var(--muted);text-align:center;padding-bottom:1px}
+.qd-cal i{display:flex;align-items:center;justify-content:center;height:34px;border:1px solid var(--rule);
+  font:400 20px/1 var(--serif);font-style:normal;color:var(--muted)}
+.qd-cal i.x{visibility:hidden}
+.qd-cal i.q{background:var(--ink);border-color:var(--ink);color:var(--ground);text-shadow:none;box-shadow:0 0 6px var(--glow)}
+.qd-cal i.s{border-color:rgba(110,154,107,.55)}
+.qd-cal i.p,.qd-cal i.f{border-style:dashed;opacity:.5}
+.qd-cal i.t{border:2px solid var(--green);color:var(--green)}
+.qd-scan{width:100%;margin-top:18px}
+.mo-trk{display:block;width:100%;max-width:420px;height:190px;margin:14px 0 12px;border:2px solid var(--rule)}
+.mo-scr .qd-n{display:block;font-size:132px;line-height:.8;margin:14px 0 2px;color:var(--green);text-shadow:0 0 14px rgba(226,247,222,.45)}
+.mo-scr .qd-v{color:var(--green)}
+@media (prefers-reduced-motion:no-preference){
+  .qd-wk i.t{animation:navblink 1.1s steps(1) infinite}
+  .qd-cal.go i.q{animation:qd-on .28s steps(3) both;animation-delay:calc(var(--n) * var(--gap, 45ms) + 450ms)}
+  .qd-cal i.t{animation:navblink 1.1s steps(1) infinite}
+  @keyframes qd-on{from{background:none;border-color:var(--rule);color:var(--muted);box-shadow:none}}
+}
 </style>
 </head>
 <body>
@@ -1849,7 +1880,7 @@ async function pullBank(){
   if (!bankKey) return false;
   try {
     var r = await bankFetch('/api/bank/' + CODE);
-    if (r.ok && r.data){ setBank(r.data); setTimeout(postWatch, 0); setTimeout(postClerk, 0); return true; }
+    if (r.ok && r.data){ setBank(r.data); bankFresh = true; setTimeout(postWatch, 0); setTimeout(postClerk, 0); setTimeout(quietCheck, 300); return true; }
   } catch(e){}
   return false;
 }
@@ -2584,6 +2615,374 @@ var NAV = (function(){
   };
 })();
 
+/* ─────────────────────────── quiet days ───────────────────────────
+   A quiet day is a day with no everyday spending: no card payment, no cash. Bills,
+   debt payments, savings and money in are not movement, so a rent day can be quiet.
+   The bank is the record, so this needs the bank on this phone, and a day counts only
+   once a sync has run after it ended; until then it waits (a card payment can still
+   come in). Today shows the last week and the month's count; the sheet has the
+   tracker for today, the month as a grid, the runs, and what the quiet days held
+   back. The first time the owner opens Today after a quiet day, MOTHER offers the
+   daily scan: the tracker sweeps, finds no movement, and the run counts up. Only
+   quiet days are reported; a day with spending is never called out. */
+var bankFresh = false;     // the bank came in from the Worker this visit, not from the phone's copy
+function quietSeenName(){ return 'runway-quiet-seen-' + CODE; }
+function quiet(){
+  if (!hasBank() || !PLAN) return null;
+  var today = todayStr(), by = {}, first = null;
+  txList().forEach(function(t){ if (!first || t.d < first) first = t.d; });
+  if (!first) return null;
+  if (first < PLAN.asOf) first = PLAN.asOf;
+  classified().forEach(function(c){
+    if (!c.counts || c.b !== 'everyday' || !(c.out > 0)) return;
+    (by[c.t.d] = by[c.t.d] || []).push(c.out);
+  });
+  allSpends().forEach(function(s){ if (!isIn(s)) (by[s.d] = by[s.d] || []).push(s.amt); });
+  /* Scanned up to the last sync: the pockets' own when they are linked (everyday
+     money leaves from them), the bank's otherwise. */
+  var ts = PLAN.flex.map(function(f){ var a = pocketAcct(f.id); return a && a.a.synced; }).filter(Boolean).sort();
+  var at = ts[0] || BANK.synced, edge = at ? ymd(new Date(at)) : today;
+  if (edge > today) edge = today;
+  function total(d){ return cents((by[d] || []).reduce(function(t, v){ return t + v; }, 0)); }
+  var days = [], map = {}, run = 0, best = 0, before = 0, costs = [];
+  for (var d = first; d < today; d = addDays(d, 1)){
+    var x = { d: d, amt: total(d), q: !by[d], ok: d < edge };
+    days.push(x); map[d] = x;
+    if (!x.ok) continue;
+    if (x.q){ run++; if (run > best) best = run; }
+    else { if (run > before) before = run; run = 0; costs.push(x.amt); }
+  }
+  /* What a day with spending usually costs: the middle one, so one big day does not set it. */
+  costs.sort(function(a, b){ return a - b; });
+  var mid = costs.length >> 1, typical = costs.length >= 5 ? cents(costs.length % 2 ? costs[mid] : (costs[mid - 1] + costs[mid]) / 2) : null;
+  var mi = monthIndexOf(today);
+  function inMonth(i){
+    var b = monthBounds(i), list = days.filter(function(x){ return x.ok && x.d >= b.first && x.d <= b.last; });
+    return list.length ? { i: i, first: b.first, last: b.last, n: list.filter(function(x){ return x.q; }).length, of: list.length } : null;
+  }
+  var okd = days.filter(function(x){ return x.ok; });
+  return { days: days, at: map, last: okd[okd.length - 1] || null, run: run, best: best, record: run > 0 && run > before && run >= 2,
+    month: inMonth(mi) || { i: mi, first: monthBounds(mi).first, last: monthBounds(mi).last, n: 0, of: 0 }, prev: inMonth(mi - 1),
+    avg: typical,
+    today: { list: by[today] || [], n: (by[today] || []).length, amt: total(today) } };
+}
+function qMonthName(d, long){
+  var p = ymdParts(d);
+  return new Date(p[0], p[1] - 1, 1).toLocaleDateString('en-GB', { month: long ? 'long' : 'short' });
+}
+function qDays(n){ return n + (n === 1 ? ' day' : ' days'); }
+/* What yesterday's quiet day did to the days that are left: the same money over one
+   day fewer than if it had been spent at the usual pace. */
+function quietLift(Q){
+  var today = todayStr(), y = Q.at[addDays(today, -1)], mi = monthIndexOf(today);
+  if (!y || !y.ok || !y.q || !inRange(mi) || mi === 0 || monthIndexOf(y.d) !== mi) return null;
+  var e = envelope(mi), left = e.pockets ? e.pocketLeft : e.left;
+  if (!(left > 0) || e.daysLeft < 1) return null;
+  var now = cents(left / e.daysLeft), up = cents(now - left / (e.daysLeft + 1));
+  return up >= 0.05 ? { now: now, up: up } : null;
+}
+function quietRowHtml(){
+  var Q = quiet();
+  if (!Q) return '';
+  var today = todayStr(), cells = '';
+  for (var i = 6; i >= 1; i--){
+    var x = Q.at[addDays(today, -i)];
+    cells += '<i class="' + (!x ? 'p' : !x.ok ? 'p' : x.q ? 'q' : 's') + '"></i>';
+  }
+  cells += '<i class="' + (Q.today.n ? 's' : 't') + '"></i>';
+  return oRowH('Quiet days<span class="qd-wk" aria-hidden="true">' + cells + '</span>', esc(String(Q.month.n)),
+    'data-sheet="quiet" aria-label="Quiet days: ' + Q.month.n + ' this month, ' + Q.run + ' in a row"', 'qd');
+}
+function quietSheetHtml(){
+  var Q = quiet();
+  var html = '<div class="lg-head"><button class="cancel" data-act="cancel">Close</button><h2 id="sheet-title">Quiet days</h2><span></span></div>';
+  if (!Q) return html + '<p class="o-note">This needs the bank on this phone.</p>';
+  var t = Q.today, today = todayStr(), M = Q.month;
+  html += '<div class="nav trk"><canvas id="trk-cv" aria-hidden="true"></canvas><span class="nav-st"><span class="nav-k">' +
+    (t.n ? '▸ Movement · ' + esc(fmtAmt(t.amt)) : '■ No movement') + '</span><span class="nav-d"><span>Today so far</span><span>' +
+    (t.n ? t.n + (t.n === 1 ? ' payment' : ' payments') : 'Hold it till midnight') + '</span></span></span></div>';
+  /* The month, Monday first. */
+  var p = ymdParts(M.first), lead = (new Date(p[0], p[1] - 1, 1).getDay() + 6) % 7, k = 0, pending = false;
+  var cal = 'MTWTFSS'.split('').map(function(c){ return '<b>' + c + '</b>'; }).join('') + new Array(lead + 1).join('<i class="x"></i>');
+  for (var d = M.first; d <= M.last; d = addDays(d, 1)){
+    var x = Q.at[d], cls = d > today ? 'f' : d === today ? (t.n ? 's' : 't') : !x ? 'f' : !x.ok ? 'p' : x.q ? 'q' : 's';
+    if (cls === 'p') pending = true;
+    cal += '<i class="' + cls + '"' + (cls === 'q' ? ' style="--n:' + (k++) + '"' : '') + '>' + Number(d.slice(8)) + '</i>';
+  }
+  html += oGrp(qMonthName(M.first, true), M.n + ' quiet') +
+    '<div class="qd-cal" id="qd-cal" style="--gap:' + (k > 20 ? 30 : 45) + 'ms" role="img" aria-label="' + M.n + ' quiet days out of ' + M.of + ' so far">' + cal + '</div>';
+  if (Q.prev){
+    var need = Q.prev.n - M.n + 1, room = daysFrom(today, M.last) + 1;
+    html += oRow(qMonthName(Q.prev.first, true), Q.prev.n + ' quiet', '', 'dim',
+      need <= 0 ? 'Passed' : need <= room ? need + ' more to pass it' : '');
+  }
+  html += oGrp('In a row') +
+    oRow('Now', qDays(Q.run), '', '', Q.run && Q.run >= Q.best ? 'The longest run so far' : Q.best > Q.run ? (Q.best - Q.run + 1) + ' more to pass the best' : '') +
+    oRow('Best', qDays(Q.best), '', 'dim');
+  if (Q.avg && M.n) html += oGrp('Held back') +
+    oRow(qMonthName(M.first, true), '≈ ' + fmt(M.n * Q.avg), '', '', M.n + ' quiet × ' + fmt(Q.avg) + ', a usual day with spending');
+  if (Q.run) html += '<button class="o-key qd-scan" type="button" data-act="quiet-scan">[ Run the scan ]</button>';
+  return html + '<p class="o-foot">Quiet = no card payment and no cash that day. Bills and savings are not movement.' +
+    (pending ? ' Days after the last bank sync wait for the next one.' : '') + '</p>';
+}
+function quietMount(){
+  var cv = $('trk-cv'), Q = quiet();
+  if (cv && Q) TRK.mount(cv, { label: 'TODAY', contacts: Q.today.list, on: function(){ return sheetKind === 'quiet'; } });
+}
+/* The sheet coming up counts the month's quiet days in, one tick each. */
+function quietTally(){
+  var cal = $('qd-cal');
+  if (!cal || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+  cal.classList.add('go');
+  var n = cal.querySelectorAll('i.q').length, gap = n > 20 ? 30 : 45;
+  for (var i = 0; i < n; i++) (function(i){
+    setTimeout(function(){
+      if (sheetKind !== 'quiet' || !cal.isConnected) return;
+      if (i === n - 1) SFX.tick(); else SFX.digit('3');
+    }, 450 + i * gap);
+  })(i);
+}
+
+/* What the daily scan has to say, or null. Asked once a day, the first time Today is
+   up after a sync has closed yesterday; replay is the sheet's own key. */
+function quietReport(replay){
+  var Q = quiet();
+  if (!Q || !Q.last) return null;
+  var today = todayStr(), yd = addDays(today, -1);
+  if (replay) return Q.run ? { Q: Q, n: 1, day: Q.last.d } : null;
+  var seen = store.get(quietSeenName());
+  if (seen === today || Q.last.d !== yd) return null;
+  var from = seen && seen >= addDays(today, -7) ? seen : yd;
+  var got = Q.days.filter(function(x){ return x.ok && x.q && x.d >= from; });
+  return got.length ? { Q: Q, n: got.length, day: got[got.length - 1].d } : null;
+}
+function quietCheck(){
+  if (!PLAN || !bankFresh || page !== 'today' || moPlaying || sheetKind || document.hidden) return;
+  if (!ME || lc(ME) !== lc(PLAN.people.owner)) return;
+  var due = recalcDue();
+  if (due && !rcAskedToday(due)) return;
+  var R = quietReport(false);
+  if (R) quietScan(R, false);
+}
+function quietScan(R, replay){
+  if (moPlaying) return;
+  moPlaying = true;
+  var my = ++moJob, box = $('mo-play'), scr = $('mo-scr'), btn = $('mo-go'), later = $('mo-later'), T = moScreen(my), Q = R.Q;
+  var label = R.n === 1 ? dayLabel(R.day) : 'Last ' + R.n + ' quiet days';
+  function seen(){ if (!replay) store.set(quietSeenName(), todayStr()); }
+  async function run(){
+    scr.innerHTML = '';
+    SFX.chatter();
+    await T.type(T.line('dim'), 'MU/TH/UR 6000', 16); T.nl();
+    await T.type(T.line('dim'), 'Daily scan · ' + label, 16); T.nl(2);
+    await T.type(T.line(), 'Scanning for movement…', 26);
+    if (my !== moJob) return;
+    var cv = document.createElement('canvas');
+    cv.className = 'mo-trk'; cv.setAttribute('aria-hidden', 'true');
+    scr.appendChild(cv);
+    await TRK.scan(cv, { label: (R.n === 1 ? dayLabel(R.day) : R.n + ' days').toUpperCase(), contacts: [],
+      on: function(){ return !box.hidden; } }, function(){ return T.skip || my !== moJob; });
+    if (my !== moJob) return;
+    SFX.ok();
+    var end = T.line('qd-v');
+    await T.type(end, R.n === 1 ? '■ No movement detected.' : '■ ' + R.n + ' quiet days. No movement.', 22);
+    if (Q.run >= 2){
+      /* The run counts up, the computer's tones climbing with it. */
+      var big = T.line('qd-n'), steps = Math.min(Q.run, 14), TONES = ['4', '3', '1', '0'];
+      for (var k = 1; k <= steps; k++){
+        if (my !== moJob) return;
+        big.textContent = String(Math.round(Q.run * k / steps));
+        if (!T.calm && !T.skip){
+          SFX.digit(TONES[Math.min(3, Math.floor((k - 1) / Math.max(1, steps - 1) * 3.999))]);
+          await T.wait(Math.max(70, Math.min(170, 900 / steps)));
+        }
+      }
+      big.textContent = String(Q.run);
+      SFX.tick();
+      end = T.line();
+      await T.type(end, 'days in a row' + (Q.record ? ' · new best' : ''), 20);
+    } else if (Q.run === 1){
+      T.nl(); end = T.line();
+      await T.type(end, 'A new run starts here.', 20);
+    }
+    var lift = quietLift(Q);
+    if (lift){ T.nl(); end = T.line('dim'); await T.type(end, 'Now ' + fmtAmt(lift.now) + ' a day · up ' + fmtAmt(lift.up), 16); }
+    if (Q.best > Q.run && Q.run >= 1){ T.nl(); end = T.line('dim'); await T.type(end, (Q.best - Q.run + 1) + ' more to pass the best run', 16); }
+    if (my !== moJob) return;
+    T.cursor(end);
+    btn.textContent = '[ Acknowledge ]'; btn.hidden = false; btn.onclick = closePlay; btn.focus();
+  }
+  moOpen('Daily scan');
+  scr.innerHTML = '<span class="dim">MU/TH/UR 6000</span>\n<span class="dim">Daily scan</span>\n\nTracker ready<span class="mo-cur"></span>';
+  btn.textContent = '[ Scan ]'; btn.hidden = false;
+  if (!replay){ later.textContent = 'Later'; later.hidden = false; later.onclick = function(){ seen(); closePlay(); }; }
+  btn.onclick = function(){ btn.hidden = true; later.hidden = true; seen(); run(); };
+  box.onclick = function(e){ if (btn.hidden && e.target !== btn) T.skip = true; };
+  btn.focus();
+}
+
+/* The tracker: range rings from the bottom of the screen and a pulse going out.
+   Every everyday payment of the day is a contact that lights as the pulse passes;
+   none is the point. In the sheet it idles on today. As the daily scan it pulses
+   three times, a tone each, then brackets close on NO MOVEMENT. */
+var TRK = (function(){
+  var cv = null, g = null, W = 0, H = 0, dpr = 1, raf = 0, st = null, t0 = 0, lastF = 0, beat = -1, fin = null, stop = null;
+  var calm = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var C = { ink:'#a8e6a1', hi:'#e2f7de', dim:'#6e9a6b', bg:'#020a05' };
+  var SCAN = 820, IDLE = 2600, PULSES = 3;
+  function rgba(hex, a){
+    var n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + Math.max(0, Math.min(1, a)) + ')';
+  }
+  function ease(v){ v = v < 0 ? 0 : v > 1 ? 1 : v; return 1 - Math.pow(1 - v, 3); }
+  function fr(v){ return v - Math.floor(v); }
+  function size(){
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return false;
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (w !== W || h !== H || cv.width !== Math.round(w * dpr)){
+      W = w; H = h; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    return true;
+  }
+  function draw(now){
+    if (!g || !st || !size()) return;
+    if (st.scan && stop && stop() && now - t0 < PULSES * SCAN) t0 = now - PULSES * SCAN - 600;
+    var T = now - t0, t = now / 1000, P = st.scan ? SCAN : IDLE, n = Math.floor(T / P), f = (T % P) / P;
+    var end = !!st.scan && (calm || n >= PULSES), TV = end ? (calm ? 1e9 : T - PULSES * P) : 0;
+    var list = (st.contacts || []).slice(0, 6);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+    var cx = W / 2, cy = H - 18, R = Math.min(W / 2 - 14, H - 42), i, a;
+
+    /* Range rings, spokes, and the ticks along the outer ring. */
+    g.lineWidth = 1;
+    for (i = 1; i <= 4; i++){
+      g.strokeStyle = rgba(C.ink, i === 4 ? 0.5 : 0.2);
+      g.beginPath(); g.arc(cx, cy, R * i / 4, Math.PI, Math.PI * 2); g.stroke();
+    }
+    g.strokeStyle = rgba(C.ink, 0.14); g.beginPath();
+    for (i = 1; i < 6; i++){
+      a = Math.PI + i * Math.PI / 6;
+      g.moveTo(cx + Math.cos(a) * R * 0.12, cy + Math.sin(a) * R * 0.12); g.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+    }
+    g.stroke();
+    g.strokeStyle = rgba(C.ink, 0.5); g.beginPath();
+    for (i = 0; i <= 36; i++){
+      a = Math.PI + i * Math.PI / 36;
+      var tl = i % 6 === 0 ? 7 : 3;
+      g.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); g.lineTo(cx + Math.cos(a) * (R + tl), cy + Math.sin(a) * (R + tl));
+    }
+    g.moveTo(cx - R - 7, cy + 0.5); g.lineTo(cx + R + 7, cy + 0.5);
+    g.stroke();
+
+    /* The pulse, with two fainter rings behind it. */
+    var e = 1 - Math.pow(1 - f, 2), rp = R * e, pulsing = !end && !calm;
+    if (pulsing){
+      g.save();
+      g.shadowColor = rgba(C.ink, 0.7); g.shadowBlur = 8;
+      for (i = 0; i < 3; i++){
+        var rr = rp - i * 8;
+        if (rr < 3) continue;
+        g.strokeStyle = rgba(C.hi, (1 - e * 0.8) * (i ? 0.3 / i : 0.95)); g.lineWidth = i ? 1 : 2;
+        g.beginPath(); g.arc(cx, cy, rr, Math.PI, Math.PI * 2); g.stroke();
+      }
+      g.restore();
+    }
+
+    /* Contacts: brightest as the pulse passes, fading until the next one. */
+    list.forEach(function(amt, j){
+      var ang = Math.PI * (1.14 + 0.72 * fr(Math.sin((j + 1) * 12.9898 + amt * 0.37) * 43758.5453));
+      var cr = R * (0.34 + 0.54 * fr(Math.sin((j + 1) * 78.233 + amt * 0.11) * 12543.21));
+      var gone = pulsing ? (rp >= cr ? rp - cr : rp + R - cr) / R : 0.2;
+      var x = cx + Math.cos(ang) * cr, y = cy + Math.sin(ang) * cr, br = Math.max(0.3, 1 - gone * 1.1);
+      g.save();
+      g.shadowColor = rgba(C.hi, 0.8 * br); g.shadowBlur = 10;
+      g.fillStyle = rgba(C.hi, br);
+      g.beginPath(); g.arc(x, y, 3 + Math.min(3.5, amt / 25), 0, Math.PI * 2); g.fill();
+      g.restore();
+    });
+
+    /* The tracker itself, at the centre of the baseline. */
+    g.fillStyle = C.ink;
+    g.beginPath(); g.moveTo(cx - 6, cy); g.lineTo(cx, cy - 9); g.lineTo(cx + 6, cy); g.closePath(); g.fill();
+
+    /* The verdict. */
+    var vy = cy - R * 0.5;
+    g.textAlign = 'center';
+    if (end){
+      var k = ease(TV / 420), hw = 84 + 46 * (1 - k), hh = 17 + 22 * (1 - k), arm = 9;
+      g.save();
+      g.strokeStyle = rgba(C.hi, 0.4 + 0.6 * k); g.lineWidth = 1.6;
+      g.shadowColor = rgba(C.hi, 0.6); g.shadowBlur = 6;
+      [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(function(s){
+        var x = cx + s[0] * hw, y = vy + s[1] * hh;
+        g.beginPath(); g.moveTo(x, y - s[1] * arm); g.lineTo(x, y); g.lineTo(x - s[0] * arm, y); g.stroke();
+      });
+      g.fillStyle = rgba(C.hi, k); g.font = '26px "VT323", monospace';
+      g.fillText('NO MOVEMENT', cx, vy + 8);
+      g.restore();
+    } else if (!st.scan && !list.length){
+      g.fillStyle = rgba(C.ink, 0.6); g.font = '22px "VT323", monospace';
+      g.fillText('NO MOVEMENT', cx, vy + 7);
+    }
+
+    /* Telemetry in the corners. */
+    g.font = '10px "Share Tech Mono", monospace'; g.fillStyle = C.dim;
+    g.textAlign = 'left';
+    g.fillText('TRACKER · EVERYDAY', 8, 14);
+    g.fillText('RANGE 24 H', 8, H - 6);
+    g.textAlign = 'right';
+    g.fillText(st.label || '', W - 8, 14);
+    if (st.scan && !end){ if ((T / 260 | 0) % 2) g.fillText('SCANNING', W - 8, H - 6); }
+    else g.fillText('CONTACTS ' + (st.contacts || []).length, W - 8, H - 6);
+
+    /* A slow refresh band down the screen. */
+    if (!calm){
+      var by = ((t % 5) / 5) * (H + 60) - 30, band = g.createLinearGradient(0, by - 30, 0, by + 30);
+      band.addColorStop(0, rgba(C.ink, 0)); band.addColorStop(0.5, rgba(C.ink, 0.05)); band.addColorStop(1, rgba(C.ink, 0));
+      g.fillStyle = band; g.fillRect(0, by - 30, W, 60);
+    }
+
+    if (st.scan){
+      if (pulsing && n !== beat){ beat = n; SFX.digit('4'); }
+      if (end && fin && TV > 420){ var done = fin; fin = null; done(); }
+    }
+  }
+  function live(){ return cv && cv.isConnected && !document.hidden && st && (!st.on || st.on()); }
+  function loop(now){
+    raf = 0;
+    if (!live()) return;
+    if (now - lastF >= 32){ lastF = now; draw(now); }
+    if (!calm) raf = requestAnimationFrame(loop);
+  }
+  function kick(){
+    if (!g) return;
+    if (calm){ if (live()) draw(performance.now()); return; }
+    if (!raf && live()) raf = requestAnimationFrame(loop);
+  }
+  function mount(c, s){
+    cv = c; g = c && c.getContext('2d'); W = H = 0; st = s; t0 = performance.now(); beat = -1; fin = null; stop = null;
+    kick();
+  }
+  document.addEventListener('visibilitychange', kick);
+  return {
+    mount: mount,
+    /* Resolves when the verdict is on the screen (or at once if it cannot draw). */
+    scan: function(c, s, stopFn){
+      s.scan = true;
+      return new Promise(function(ok){
+        mount(c, s);
+        stop = stopFn || null;
+        var my = s;
+        fin = ok;
+        setTimeout(function(){ if (st === my && fin){ fin = null; ok(); } }, calm ? 60 : PULSES * SCAN + 1500);
+        kick();
+      });
+    }
+  };
+})();
+
 /* ─────────────────────────── sound ───────────────────────────
    MU-TH-UR's voice. The first tap boots her (the Nostromo boot sequence); the
    room hum under everything has its own switch and starts off. A screen coming
@@ -2972,6 +3371,7 @@ function openSheet(kind){
   lastFocus = document.activeElement;
   renderSheet();
   TYPE.run($('sheet'));
+  if (kind === 'quiet') quietTally();
   $('scrim').classList.add('open');
   $('sheet').classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -3142,6 +3542,11 @@ function renderSheet(){
 
   else if (sheetKind === 'bankmanage'){
     html = bankManageHtml();
+  }
+
+  else if (sheetKind === 'quiet'){
+    $('sheet-body').innerHTML = quietSheetHtml();
+    return quietMount();
   }
 
   else if (sheetKind === 'rule'){
@@ -3540,6 +3945,7 @@ function go(p, pushState){
   if (arriving) TYPE.run($('s-' + p));
   if (p === 'mother') motherCheck();
   recalcCheck();
+  quietCheck();
 }
 
 function renderLive(){
@@ -3742,7 +4148,7 @@ function everydayHtml(e){
   if (hasBank() && (e.pockets ? e.outside : e.bank)) html += oRow(e.pockets ? 'Not from a pocket' : 'Card & bank',
     fmtAmt(e.pockets ? e.outside : e.bank) + ' spent', '', e.pockets ? 'over' : 'dim');
   if (e.legacy) html += oRow('Earlier', fmtAmt(e.legacy) + ' spent', '', 'dim');
-  return html + oRowH('<span class="dim">+ ' + (hasBank() ? 'Cash' : 'Entry') + '</span>', '', 'data-sheet="log"');
+  return html + quietRowHtml() + oRowH('<span class="dim">+ ' + (hasBank() ? 'Cash' : 'Entry') + '</span>', '', 'data-sheet="log"');
 }
 function todayMoneyHtml(env){
   var html = oGrp('Money');
@@ -4952,6 +5358,7 @@ document.addEventListener('click', function(e){
   if (b.dataset.act === 'pin-go'){ e.preventDefault(); return pinSubmit(); }
   if (b.dataset.act === 'undo-tag'){ e.preventDefault(); var u = undoTag; if (u) tagWrite(u.bodies, '', true); return; }
   if (b.dataset.act === 'sync'){ e.preventDefault(); return syncNow(); }
+  if (b.dataset.act === 'quiet-scan'){ e.preventDefault(); var qr = quietReport(true); closeSheet(); if (qr) quietScan(qr, true); return; }
   if (b.dataset.act === 'forget'){ e.preventDefault(); return forgetPhone(); }
   if (b.dataset.act === 'bank-list'){ e.preventDefault(); return loadBanks(); }
   if (b.dataset.act === 'toggle-hidden'){ e.preventDefault(); payFilter.hidden = !payFilter.hidden; return render(); }
