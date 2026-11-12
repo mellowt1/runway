@@ -699,6 +699,10 @@ details p{font:400 21px/1.2 var(--serif)}
 .mo-trk{display:block;width:100%;max-width:420px;height:190px;margin:14px 0 12px;border:2px solid var(--rule)}
 .mo-scr .qd-n{display:block;font-size:132px;line-height:.8;margin:14px 0 2px;color:var(--green);text-shadow:0 0 14px rgba(226,247,222,.45)}
 .mo-scr .qd-v{color:var(--green)}
+.mo-scr .qd-pods{display:flex;gap:7px;margin:12px 0 8px}
+.qd-pods i{display:block;width:24px;height:42px;border:2px solid var(--muted);border-radius:12px 12px 4px 4px}
+.qd-pods i.on{background:var(--ink);border-color:var(--ink);box-shadow:0 0 8px var(--glow)}
+.o-row.qd .o-sm{padding-top:1px}
 @media (prefers-reduced-motion:no-preference){
   .qd-wk i.t{animation:navblink 1.1s steps(1) infinite}
   .qd-cal.go i.q{animation:qd-on .28s steps(3) both;animation-delay:calc(var(--n) * var(--gap, 45ms) + 450ms)}
@@ -2624,7 +2628,10 @@ var NAV = (function(){
    tracker for today, the month as a grid, the runs, and what the quiet days held
    back. The first time the owner opens Today after a quiet day, MOTHER offers the
    daily scan: the tracker sweeps, finds no movement, and the run counts up. Only
-   quiet days are reported; a day with spending is never called out. */
+   quiet days are reported; a day with spending is never called out. A quiet Saturday
+   and Sunday is a hypersleep weekend, with its own scan. Every quiet day also counts
+   toward a crew rank that only goes up. The Worker's quiet.js sends the morning alert
+   and decides a quiet day the same way; keep the two in step. */
 var bankFresh = false;     // the bank came in from the Worker this visit, not from the phone's copy
 function quietSeenName(){ return 'runway-quiet-seen-' + CODE; }
 function quiet(){
@@ -2644,12 +2651,15 @@ function quiet(){
   var at = ts[0] || BANK.synced, edge = at ? ymd(new Date(at)) : today;
   if (edge > today) edge = today;
   function total(d){ return cents((by[d] || []).reduce(function(t, v){ return t + v; }, 0)); }
-  var days = [], map = {}, run = 0, best = 0, before = 0, costs = [];
+  var days = [], map = {}, run = 0, best = 0, before = 0, costs = [], all = 0, weekends = 0;
   for (var d = first; d < today; d = addDays(d, 1)){
     var x = { d: d, amt: total(d), q: !by[d], ok: d < edge };
     days.push(x); map[d] = x;
     if (!x.ok) continue;
-    if (x.q){ run++; if (run > best) best = run; }
+    if (x.q){
+      run++; all++; if (run > best) best = run;
+      if (run >= 2 && qDow(d) === 0) weekends++;
+    }
     else { if (run > before) before = run; run = 0; costs.push(x.amt); }
   }
   /* What a day with spending usually costs: the middle one, so one big day does not set it. */
@@ -2663,7 +2673,7 @@ function quiet(){
   var okd = days.filter(function(x){ return x.ok; });
   return { days: days, at: map, last: okd[okd.length - 1] || null, run: run, best: best, record: run > 0 && run > before && run >= 2,
     month: inMonth(mi) || { i: mi, first: monthBounds(mi).first, last: monthBounds(mi).last, n: 0, of: 0 }, prev: inMonth(mi - 1),
-    avg: typical,
+    avg: typical, total: all, weekends: weekends,
     today: { list: by[today] || [], n: (by[today] || []).length, amt: total(today) } };
 }
 function qMonthName(d, long){
@@ -2671,6 +2681,22 @@ function qMonthName(d, long){
   return new Date(p[0], p[1] - 1, 1).toLocaleDateString('en-GB', { month: long ? 'long' : 'short' });
 }
 function qDays(n){ return n + (n === 1 ? ' day' : ' days'); }
+function qDow(d){ var p = ymdParts(d); return new Date(p[0], p[1] - 1, p[2]).getDay(); }
+/* Crew rank: every quiet day since the start counts, and a broken run takes nothing
+   away. A phone never shows a lower rank than it has shown (a late card payment can
+   turn a quiet day afterwards). */
+var Q_RANKS = [[0, 'Deckhand'], [5, 'Technician'], [12, 'Engineer'], [20, 'Navigator'], [30, 'Science officer'],
+  [45, 'Warrant officer'], [60, 'Executive officer'], [80, 'Captain']];
+function quietRankName(){ return 'runway-quiet-rank-' + CODE; }
+function quietRank(Q){
+  var i = 0, kept = store.get(quietRankName());
+  Q_RANKS.forEach(function(r, j){ if (Q.total >= r[0]) i = j; });
+  var earned = i;
+  if (typeof kept === 'number' && kept > i && kept < Q_RANKS.length) i = kept;
+  var nx = Q_RANKS[i + 1] || null;
+  return { i: i, earned: earned, kept: typeof kept === 'number' ? kept : null, name: Q_RANKS[i][1], total: Q.total, lo: Q_RANKS[i][0],
+    next: nx ? { name: nx[1], at: nx[0], need: Math.max(1, nx[0] - Q.total) } : null };
+}
 /* What yesterday's quiet day did to the days that are left: the same money over one
    day fewer than if it had been spent at the usual pace. */
 function quietLift(Q){
@@ -2690,8 +2716,10 @@ function quietRowHtml(){
     cells += '<i class="' + (!x ? 'p' : !x.ok ? 'p' : x.q ? 'q' : 's') + '"></i>';
   }
   cells += '<i class="' + (Q.today.n ? 's' : 't') + '"></i>';
+  var rk = quietRank(Q);
   return oRowH('Quiet days<span class="qd-wk" aria-hidden="true">' + cells + '</span>', esc(String(Q.month.n)),
-    'data-sheet="quiet" aria-label="Quiet days: ' + Q.month.n + ' this month, ' + Q.run + ' in a row"', 'qd');
+    'data-sheet="quiet" aria-label="Quiet days: ' + Q.month.n + ' this month, ' + Q.run + ' in a row. Rank: ' + esc(rk.name) + '"', 'qd',
+    esc(rk.name + (rk.next ? ' · ' + rk.next.need + ' to ' + rk.next.name : '')));
 }
 function quietSheetHtml(){
   var Q = quiet();
@@ -2718,7 +2746,14 @@ function quietSheetHtml(){
   }
   html += oGrp('In a row') +
     oRow('Now', qDays(Q.run), '', '', Q.run && Q.run >= Q.best ? 'The longest run so far' : Q.best > Q.run ? (Q.best - Q.run + 1) + ' more to pass the best' : '') +
-    oRow('Best', qDays(Q.best), '', 'dim');
+    oRow('Best', qDays(Q.best), '', 'dim') +
+    (Q.weekends ? oRow('Hypersleep weekends', String(Q.weekends), '', 'dim') : '');
+  var rk = quietRank(Q), span = rk.next ? rk.next.at - rk.lo : 1, cells = Math.min(span, 20),
+      fill = rk.next ? Math.min(cells, Math.floor((Q.total - rk.lo) / span * cells)) : 1, meter = '';
+  for (var j = 0; j < cells; j++) meter += '<i' + (j < fill ? ' class="on"' : '') + '></i>';
+  html += oGrp('Crew rank', Q.total + ' quiet in all') +
+    oRow(rk.name, rk.next ? rk.next.need + ' to go' : 'Top rank', '', '', rk.next ? 'Next: ' + rk.next.name : '') +
+    '<div class="o-meter" aria-hidden="true">' + meter + '</div>';
   if (Q.avg && M.n) html += oGrp('Held back') +
     oRow(qMonthName(M.first, true), '≈ ' + fmt(M.n * Q.avg), '', '', M.n + ' quiet × ' + fmt(Q.avg) + ', a usual day with spending');
   if (Q.run) html += '<button class="o-key qd-scan" type="button" data-act="quiet-scan">[ Run the scan ]</button>';
@@ -2749,12 +2784,15 @@ function quietReport(replay){
   var Q = quiet();
   if (!Q || !Q.last) return null;
   var today = todayStr(), yd = addDays(today, -1);
-  if (replay) return Q.run ? { Q: Q, n: 1, day: Q.last.d } : null;
+  function wk(d){ var sat = Q.at[addDays(d, -1)]; return qDow(d) === 0 && !!sat && sat.ok && sat.q; }
+  if (replay) return Q.run ? { Q: Q, n: 1, day: Q.last.d, weekend: wk(Q.last.d) } : null;
   var seen = store.get(quietSeenName());
   if (seen === today || Q.last.d !== yd) return null;
   var from = seen && seen >= addDays(today, -7) ? seen : yd;
   var got = Q.days.filter(function(x){ return x.ok && x.q && x.d >= from; });
-  return got.length ? { Q: Q, n: got.length, day: got[got.length - 1].d } : null;
+  if (!got.length) return null;
+  var day = got[got.length - 1].d;
+  return { Q: Q, n: got.length, day: day, weekend: wk(day) };
 }
 function quietCheck(){
   if (!PLAN || !bankFresh || page !== 'today' || moPlaying || sheetKind || document.hidden) return;
@@ -2768,11 +2806,16 @@ function quietScan(R, replay){
   if (moPlaying) return;
   moPlaying = true;
   var my = ++moJob, box = $('mo-play'), scr = $('mo-scr'), btn = $('mo-go'), later = $('mo-later'), T = moScreen(my), Q = R.Q;
-  var label = R.n === 1 ? dayLabel(R.day) : 'Last ' + R.n + ' quiet days';
+  var label = R.weekend ? 'The weekend' : R.n === 1 ? dayLabel(R.day) : 'Last ' + R.n + ' quiet days';
   function seen(){ if (!replay) store.set(quietSeenName(), todayStr()); }
   async function run(){
     scr.innerHTML = '';
     SFX.chatter();
+    /* The screen follows the last line down while it prints. */
+    var follow = setInterval(function(){
+      if (my !== moJob || !btn.hidden) clearInterval(follow);
+      if (my === moJob) box.scrollTop = box.scrollHeight;
+    }, 150);
     await T.type(T.line('dim'), 'MU/TH/UR 6000', 16); T.nl();
     await T.type(T.line('dim'), 'Daily scan · ' + label, 16); T.nl(2);
     await T.type(T.line(), 'Scanning for movement…', 26);
@@ -2780,12 +2823,27 @@ function quietScan(R, replay){
     var cv = document.createElement('canvas');
     cv.className = 'mo-trk'; cv.setAttribute('aria-hidden', 'true');
     scr.appendChild(cv);
-    await TRK.scan(cv, { label: (R.n === 1 ? dayLabel(R.day) : R.n + ' days').toUpperCase(), contacts: [],
+    await TRK.scan(cv, { label: (R.weekend ? 'Weekend' : R.n === 1 ? dayLabel(R.day) : R.n + ' days').toUpperCase(), contacts: [],
       on: function(){ return !box.hidden; } }, function(){ return T.skip || my !== moJob; });
     if (my !== moJob) return;
     SFX.ok();
     var end = T.line('qd-v');
-    await T.type(end, R.n === 1 ? '■ No movement detected.' : '■ ' + R.n + ' quiet days. No movement.', 22);
+    await T.type(end, R.weekend ? '■ No movement all weekend.' : R.n === 1 ? '■ No movement detected.' : '■ ' + R.n + ' quiet days. No movement.', 22);
+    if (R.weekend){
+      /* The seven pods of the Nostromo seal one by one: the crew slept through it. */
+      T.nl(); await T.type(T.line(), 'Crew in hypersleep.', 22);
+      var pods = T.line('qd-pods');
+      pods.setAttribute('aria-hidden', 'true');
+      pods.innerHTML = new Array(8).join('<i></i>');
+      for (var pi = 0; pi < 7; pi++){
+        if (my !== moJob) return;
+        pods.children[pi].className = 'on';
+        if (!T.calm && !T.skip){ SFX.digit('3'); await T.wait(120); }
+      }
+      SFX.tick();
+      end = T.line('dim');
+      await T.type(end, 'Reserves untouched.', 20);
+    }
     if (Q.run >= 2){
       /* The run counts up, the computer's tones climbing with it. */
       var big = T.line('qd-n'), steps = Math.min(Q.run, 14), TONES = ['4', '3', '1', '0'];
@@ -2808,6 +2866,19 @@ function quietScan(R, replay){
     var lift = quietLift(Q);
     if (lift){ T.nl(); end = T.line('dim'); await T.type(end, 'Now ' + fmtAmt(lift.now) + ' a day · up ' + fmtAmt(lift.up), 16); }
     if (Q.best > Q.run && Q.run >= 1){ T.nl(); end = T.line('dim'); await T.type(end, (Q.best - Q.run + 1) + ' more to pass the best run', 16); }
+    /* A rank this phone has not shown yet is a promotion (the first one is assigned). */
+    var rk = quietRank(Q);
+    if (rk.kept === null || rk.earned > rk.kept){
+      if (my !== moJob) return;
+      store.set(quietRankName(), rk.earned);
+      T.nl(2);
+      SFX.incoming();
+      await T.type(T.line('dim'), rk.kept === null ? 'Crew rank assigned' : 'Promotion', 20); T.nl();
+      end = T.line('qd-v');
+      await T.type(end, '▲ ' + rk.name, 60, true);
+      if (rk.next){ T.nl(); end = T.line('dim'); await T.type(end, rk.next.need + ' quiet days to ' + rk.next.name, 16); }
+      SFX.ok();
+    }
     if (my !== moJob) return;
     T.cursor(end);
     btn.textContent = '[ Acknowledge ]'; btn.hidden = false; btn.onclick = closePlay; btn.focus();

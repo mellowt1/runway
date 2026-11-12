@@ -9,7 +9,8 @@ id = "fc6033f34bcb43729009b67a836d5f0a"
 
 # Bank sync, four times a day (UTC): about 07:15, 12:15, 17:15 and 22:15 in Amsterdam.
 [triggers]
-crons = ["15 5,10,15,20 * * *"]
+# 06:30 UTC is the quiet-day alert only: it reads no bank.
+crons = ["15 5,10,15,20 * * *", "30 6 * * *"]
 
 # A second brake on PIN guesses, per code, on top of the fail counter in KV.
 [[ratelimits]]

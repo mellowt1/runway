@@ -55,6 +55,7 @@
 
 import { bankRoutes, bankSummary, syncAll, confirmManual } from './bank.js';
 import { alertRoutes, notify } from './alerts.js';
+import { quietPing, handleQuietRun } from './quiet.js';
 
 const ORIGINS = new Set([
   'https://mellowt1.github.io',
@@ -63,6 +64,7 @@ const ORIGINS = new Set([
 ]);
 const CODE = /^[a-z0-9]{6,16}$/;
 const TTL = 400 * 24 * 3600;
+const QUIET_CRON = '30 6 * * *';   // 07:30 in Amsterdam in winter, 08:30 in summer; also in wrangler.toml
 const MAX_PLAN = 60000;
 const MAX_STATE = 8000;
 const MAX_SPENDS = 1500;
@@ -658,6 +660,12 @@ export default {
     }
 
     const reply = (data, status = 200) => json(data, request, status);
+    const qr = url.pathname.match(/^\/api\/quiet\/([a-z0-9]+)\/run$/i);
+    if (qr) {
+      const code = qr[1].toLowerCase();
+      if (!CODE.test(code)) return json({ error: 'bad code' }, request, 400);
+      return handleQuietRun(request, env, code, url, reply);
+    }
     reply.raw = (text, status = 200) =>
       new Response(text, { status, headers: { ...cors(request), 'Content-Type': 'application/json' } });
     const b = await bankRoutes(request, env, ctx, url, reply);
@@ -669,7 +677,9 @@ export default {
   },
 
   // Four times a day: the most banks allow for reads without the person present.
+  // The morning cron on the half hour only looks for a quiet day; it reads no bank.
   async scheduled(event, env, ctx) {
+    if (event.cron === QUIET_CRON) return ctx.waitUntil(quietPing(env));
     ctx.waitUntil(syncAll(env));
     ctx.waitUntil(recalcPing(env));
   },
